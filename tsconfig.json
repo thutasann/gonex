@@ -11,7 +11,7 @@
     "forceConsistentCasingInFileNames": true,
     "declaration": true,
     "declarationMap": true,
-    "sourceMap": true,
+    "sourceMap": false,
     "removeComments": false,
     "noImplicitAny": true,
     "noImplicitReturns": true,
@@ -28,9 +28,7 @@
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true
   },
-  "include": [
-    "src/**/*"
-  ],
+  "include": ["src/**/*"],
   "exclude": [
     "node_modules",
     "dist",
@@ -38,4 +36,4 @@
     "**/*.spec.ts",
     "benchmarks"
   ]
-} 
+}
