@@ -5,6 +5,7 @@ A comprehensive TypeScript library that brings Go's powerful concurrency primiti
 ## Features
 
 ### Core Concurrency Primitives
+
 - **Goroutines** - Lightweight concurrent functions with automatic scheduling
 - **Channels** - Typed communication between goroutines (buffered/unbuffered)
 - **Select** - Non-blocking channel operations with multiple cases
@@ -17,11 +18,13 @@ A comprehensive TypeScript library that brings Go's powerful concurrency primiti
 - **Context** - Cancellation, deadlines, and request-scoped values
 
 ### Timing and Scheduling
+
 - **Ticker** - Periodic events with configurable intervals
 - **Timer** - One-time delayed events
 - **Sleep** - Cooperative yielding and delays
 
 ### Advanced Patterns
+
 - **Worker Pool** - Managed goroutine pools for controlled concurrency
 - **Pipeline** - Chained processing with backpressure
 - **Fan-out/Fan-in** - Parallel processing patterns
@@ -33,6 +36,24 @@ A comprehensive TypeScript library that brings Go's powerful concurrency primiti
 
 ```bash
 npm install gonex
+```
+
+## 📦 NPM Package
+
+This package is available on npm as [**gonex**](https://www.npmjs.com/package/gonex).
+
+[![npm version](https://img.shields.io/npm/v/gonex.svg)](https://www.npmjs.com/package/gonex)
+[![npm downloads](https://img.shields.io/npm/dm/gonex.svg)](https://www.npmjs.com/package/gonex)
+[![npm license](https://img.shields.io/npm/l/gonex.svg)](https://www.npmjs.com/package/gonex)
+
+**Install with:**
+
+```bash
+npm install gonex
+# or
+yarn add gonex
+# or
+pnpm add gonex
 ```
 
 ## Quick Start
@@ -82,6 +103,32 @@ This package is built with enterprise-level architecture principles:
 - **Testable** - Comprehensive test coverage
 - **Documented** - Full API documentation with examples
 
-## License
+## 🚀 Development & Releases
+
+This project uses automated CI/CD with GitHub Actions:
+
+- **CI/CD:** Automated testing, linting, and building on every push
+- **Releases:** Manual release workflow for controlled versioning
+- **Quality:** Comprehensive test coverage and TypeScript strict mode
+- **Documentation:** Auto-generated API docs
+
+### Contributing
+
+1. Fork the repository
+2. Create a feature branch from `develop`
+3. Make your changes
+4. Run tests: `npm test`
+5. Submit a pull request to `develop`
+
+### Release Process
+
+Releases are managed through GitHub Actions:
+
+1. Merge `develop` to `master`
+2. Go to Actions → Manual Release
+3. Choose version type (patch/minor/major)
+4. Automatic npm publish and GitHub release
+
+## 📄 License
 
 MIT License - see LICENSE file for details.
