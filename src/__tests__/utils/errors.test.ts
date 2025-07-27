@@ -24,7 +24,7 @@ describe('Error System', () => {
       expect(error.message).toBe('Test error');
       expect(error.code).toBe('TEST_ERROR');
       expect(error.name).toBe('GonexError');
-      expect(error.context).toBeUndefined();
+      expect(error.context).toEqual({});
     });
 
     it('should create a base error with context', () => {
@@ -181,7 +181,7 @@ describe('Error System', () => {
       );
       expect(error.code).toBe('INVALID_BUFFER_SIZE');
       // @ts-ignore
-      expect(error.context).toEqual({ size: -1, name: test - param });
+      expect(error.context).toEqual({ size: -1, name: 'test-param' });
     });
 
     it('should create invalid concurrency error', () => {

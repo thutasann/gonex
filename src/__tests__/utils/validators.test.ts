@@ -44,7 +44,7 @@ describe('Validators', () => {
       });
 
       it('should include parameter name in error', () => {
-        expect(() => validateTimeout(-1, 'test-param')).toThrow(
+        expect(() => validateTimeout(-2, 'test-param')).toThrow(
           /for test-param/
         );
       });
@@ -190,7 +190,7 @@ describe('Validators', () => {
       });
 
       it('should reject invalid context options', () => {
-        expect(() => validateContextOptions({ timeout: -1 })).toThrow(
+        expect(() => validateContextOptions({ timeout: -2 })).toThrow(
           InvalidTimeoutError
         );
         expect(() =>
@@ -237,7 +237,7 @@ describe('Validators', () => {
           ValidationError
         );
         expect(() =>
-          validateWorkerPoolOptions({ size: 10, timeout: -1 })
+          validateWorkerPoolOptions({ size: 10, timeout: -2 })
         ).toThrow(InvalidTimeoutError);
       });
     });
