@@ -20,7 +20,7 @@ export class GonexError extends Error {
   /**
    * Convert error to JSON for serialization
    */
-  toJSON(): object {
+  toJSON() {
     return {
       name: this.name,
       message: this.message,
