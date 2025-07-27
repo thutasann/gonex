@@ -3,9 +3,13 @@
  */
 export class GonexError extends Error {
   public readonly code: string;
-  public readonly context: Record<string, any>;
+  public readonly context: Record<string, AnyValue>;
 
-  constructor(message: string, code: string, context?: Record<string, any>) {
+  constructor(
+    message: string,
+    code: string,
+    context?: Record<string, AnyValue>
+  ) {
     super(message);
     this.name = 'GonexError';
     this.code = code;
@@ -32,7 +36,11 @@ export class GonexError extends Error {
 }
 
 export class ChannelError extends GonexError {
-  constructor(message: string, code: string, context?: Record<string, any>) {
+  constructor(
+    message: string,
+    code: string,
+    context?: Record<string, AnyValue>
+  ) {
     super(message, code, context);
     this.name = 'ChannelError';
   }
@@ -72,7 +80,11 @@ export class ChannelBufferFullError extends ChannelError {
 }
 
 export class ContextError extends GonexError {
-  constructor(message: string, code: string, context?: Record<string, any>) {
+  constructor(
+    message: string,
+    code: string,
+    context?: Record<string, AnyValue>
+  ) {
     super(message, code, context);
     this.name = 'ContextError';
   }
@@ -110,7 +122,11 @@ export class ContextDeadlineExceededError extends ContextError {
 }
 
 export class MutexError extends GonexError {
-  constructor(message: string, code: string, context?: Record<string, any>) {
+  constructor(
+    message: string,
+    code: string,
+    context?: Record<string, AnyValue>
+  ) {
     super(message, code, context);
     this.name = 'MutexError';
   }
@@ -139,7 +155,11 @@ export class MutexAlreadyLockedError extends MutexError {
 }
 
 export class WaitGroupError extends GonexError {
-  constructor(message: string, code: string, context?: Record<string, any>) {
+  constructor(
+    message: string,
+    code: string,
+    context?: Record<string, AnyValue>
+  ) {
     super(message, code, context);
     this.name = 'WaitGroupError';
   }
@@ -157,7 +177,11 @@ export class WaitGroupNegativeCounterError extends WaitGroupError {
 }
 
 export class SemaphoreError extends GonexError {
-  constructor(message: string, code: string, context?: Record<string, any>) {
+  constructor(
+    message: string,
+    code: string,
+    context?: Record<string, AnyValue>
+  ) {
     super(message, code, context);
     this.name = 'SemaphoreError';
   }
@@ -175,14 +199,18 @@ export class SemaphoreTimeoutError extends SemaphoreError {
 }
 
 export class ValidationError extends GonexError {
-  constructor(message: string, code: string, context?: Record<string, any>) {
+  constructor(
+    message: string,
+    code: string,
+    context?: Record<string, AnyValue>
+  ) {
     super(message, code, context);
     this.name = 'ValidationError';
   }
 }
 
 export class InvalidTimeoutError extends ValidationError {
-  constructor(timeout: any, name?: string) {
+  constructor(timeout: AnyValue, name?: string) {
     super(
       `Invalid timeout value: ${timeout}${name ? ` for ${name}` : ''}. Must be a positive number or -1 for infinite`,
       'INVALID_TIMEOUT',
@@ -193,7 +221,7 @@ export class InvalidTimeoutError extends ValidationError {
 }
 
 export class InvalidBufferSizeError extends ValidationError {
-  constructor(size: any, name?: string) {
+  constructor(size: AnyValue, name?: string) {
     super(
       `Invalid buffer size: ${size}${name ? ` for ${name}` : ''}. Must be a non-negative integer`,
       'INVALID_BUFFER_SIZE',
@@ -204,7 +232,7 @@ export class InvalidBufferSizeError extends ValidationError {
 }
 
 export class InvalidConcurrencyError extends ValidationError {
-  constructor(level: any, name?: string) {
+  constructor(level: AnyValue, name?: string) {
     super(
       `Invalid concurrency level: ${level}${name ? ` for ${name}` : ''}. Must be a positive integer`,
       'INVALID_CONCURRENCY_LEVEL',

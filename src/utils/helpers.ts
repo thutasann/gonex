@@ -74,17 +74,19 @@ export function createCancellablePromise<T>(
   });
 }
 
-export function isPromise(value: any): value is Promise<any> {
+export function isPromise(value: AnyValue): value is Promise<AnyValue> {
   return value && typeof value.then === 'function';
 }
 
-export function isAsyncFunction(value: any): value is Function {
+export function isAsyncFunction(
+  value: AnyValue
+): value is (...args: AnyValue[]) => Promise<AnyValue> {
   return (
     typeof value === 'function' && value.constructor.name === 'AsyncFunction'
   );
 }
 
-export function isValidTimeout(timeout: any): timeout is number {
+export function isValidTimeout(timeout: AnyValue): timeout is number {
   return (
     typeof timeout === 'number' &&
     !isNaN(timeout) &&
@@ -92,7 +94,7 @@ export function isValidTimeout(timeout: any): timeout is number {
   );
 }
 
-export function isValidBufferSize(size: any): size is number {
+export function isValidBufferSize(size: AnyValue): size is number {
   return (
     typeof size === 'number' &&
     !isNaN(size) &&
@@ -118,8 +120,8 @@ export function deepClone<T>(obj: T): T {
   if (typeof obj === 'object') {
     const cloned = {} as T;
     for (const key in obj) {
-      if (obj.hasOwnProperty(key)) {
-        (cloned as any)[key] = deepClone((obj as any)[key]);
+      if (Object.prototype.hasOwnProperty.call(obj, key)) {
+        (cloned as AnyValue)[key] = deepClone((obj as AnyValue)[key]);
       }
     }
     return cloned;
@@ -133,8 +135,11 @@ export function mergeOptions<T>(defaults: T, options: Partial<T>): T {
 
   if (options && typeof options === 'object') {
     for (const key in options) {
-      if (options.hasOwnProperty(key) && options[key] !== undefined) {
-        (result as any)[key] = options[key];
+      if (
+        Object.prototype.hasOwnProperty.call(options, key) &&
+        options[key] !== undefined
+      ) {
+        (result as AnyValue)[key] = options[key];
       }
     }
   }
@@ -146,7 +151,7 @@ export function pick<T, K extends keyof T>(obj: T, keys: K[]): Pick<T, K> {
   const result = {} as Pick<T, K>;
 
   for (const key of keys) {
-    if (key in (obj as any)) {
+    if (key in (obj as AnyValue)) {
       result[key] = obj[key];
     }
   }

@@ -111,7 +111,7 @@ export function validateChannelOperation(operation: 'send' | 'receive'): void {
 export type ContextOptions = {
   timeout?: number;
   deadline?: Date;
-  values?: Record<string, any>;
+  values?: Record<string, AnyValue>;
 };
 
 export function validateContextOptions(options: ContextOptions): void {
@@ -124,7 +124,7 @@ export function validateContextOptions(options: ContextOptions): void {
   }
 }
 
-export function validateContextValues(values: Record<string, any>): void {
+export function validateContextValues(values: Record<string, AnyValue>): void {
   if (values !== null && typeof values !== 'object') {
     throw new ValidationError(
       `Invalid context values: ${values}. Must be an object or null`,
