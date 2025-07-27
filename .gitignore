@@ -40,9 +40,6 @@ pids/
 .env.test.local
 .env.production.local
 
-# Documentation
-docs/
-
 # Benchmarks
 benchmark-results/
 
