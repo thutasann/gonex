@@ -82,7 +82,7 @@ export function validatePoolSize(size: number, name?: string): void {
   }
 }
 
-export type ChannelOptions = {
+type ChannelOptions = {
   /** Buffer size for the channel (0 for unbuffered) */
   bufferSize?: number;
   /** Default timeout for send/receive operations in milliseconds */
