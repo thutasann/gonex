@@ -18,15 +18,16 @@ Runs on every push and pull request to ensure code quality:
 - **Type Check:** TypeScript type checking
 - **Integration:** Tests built package and runs benchmarks
 
-### 2. Release (`release.yml`)
+### 2. Manual Release (`manual-release.yml`)
 
-**Triggers:** Push to `master` with version tag (e.g., `v1.0.0`)
+**Triggers:** Manual workflow dispatch
 
-Automates the release process:
+Allows manual control over version bumping:
 
+- Choose version bump type (patch, minor, major)
 - Runs tests and builds
-- Publishes to npm (requires `NPM_TOKEN` secret)
-- Creates GitHub release
+- Publishes to npm
+- Creates Git tag and GitHub release
 
 ### 3. Pull Request Checks (`pr.yml`)
 
@@ -85,14 +86,21 @@ Recommended branch protection for `master`:
 
 ### Release Workflow
 
+#### Manual Release (Recommended)
+
 1. Ensure all tests pass on `develop`
 2. Merge `develop` to `master`
-3. Create and push a version tag:
-   ```bash
-   git tag v1.0.0
-   git push origin v1.0.0
-   ```
-4. Release workflow automatically publishes to npm and creates GitHub release
+3. Go to Actions tab in GitHub
+4. Select "Manual Release" workflow
+5. Choose version bump type:
+   - **patch**: Bug fixes (1.0.0 → 1.0.1)
+   - **minor**: New features (1.0.0 → 1.1.0)
+   - **major**: Breaking changes (1.0.0 → 2.0.0)
+6. Click "Run workflow"
+7. Release workflow automatically:
+   - Bumps version
+   - Publishes to npm
+   - Creates Git tag and GitHub release
 
 ### Manual Workflow Triggers
 
