@@ -1,4 +1,4 @@
-# Minimal, fast, and Go-inspired concurrency model for Node.js — with goroutines, channels, and select logic.
+# Minimal, fast, and Go-inspired concurrency model for Node.js
 
 A comprehensive TypeScript library that brings Go's powerful concurrency primitives to Node.js, enabling robust, scalable concurrent programming patterns.
 
