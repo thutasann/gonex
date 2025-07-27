@@ -1,4 +1,4 @@
-# GoLang Inspired Concurrency Package for Node.js
+# Minimal, fast, and Go-inspired concurrency model for Node.js
 
 A comprehensive TypeScript library that brings Go's powerful concurrency primitives to Node.js, enabling robust, scalable concurrent programming patterns.
 
