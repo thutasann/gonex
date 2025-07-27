@@ -31,7 +31,7 @@
     "waitgroup",
     "context"
   ],
-  "author": "Your Name",
+  "author": "Thuta Sann",
   "license": "MIT",
   "devDependencies": {
     "@types/jest": "^29.5.0",
@@ -52,10 +52,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/yourusername/gonex.git"
+    "url": "https://github.com/thutasann/gonex.git"
   },
   "bugs": {
-    "url": "https://github.com/yourusername/gonex/issues"
+    "url": "https://github.com/thutasann/gonex/issues"
   },
-  "homepage": "https://github.com/yourusername/gonex#readme"
-} 
+  "homepage": "https://github.com/thutasann/gonex#readme"
+}
