@@ -16,6 +16,9 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
 
     steps:
       - name: Checkout code
@@ -80,7 +83,7 @@ jobs:
           # Commit the version bump
           git add package.json package-lock.json
           git commit -m "Bump version to $NEW_VERSION [skip ci]"
-          git push
+          git push origin HEAD:master
 
       - name: Publish to npm
         run: |
