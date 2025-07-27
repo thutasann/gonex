@@ -40,7 +40,7 @@ jobs:
         run: npm run build
 
       - name: Upload coverage reports
-        uses: codecov/codecov-action@v3
+        uses: codecov/codecov-action@v4
         with:
           file: ./coverage/lcov.info
           flags: unittests
@@ -120,7 +120,7 @@ jobs:
         run: npm run docs || echo "Documentation generation failed"
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: dist-files
           path: dist/
