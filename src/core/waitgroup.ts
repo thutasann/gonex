@@ -31,7 +31,7 @@ export class WaitGroup {
   private counter = 0;
   private waitPromise: Promise<void> | null = null;
   private waitResolve: (() => void) | null = null;
-  private waitReject: ((error: Error) => void) | null = null;
+  // private waitReject: ((error: Error) => void) | null = null;
   private errors: Error[] = [];
   private readonly timeout: number;
   private readonly name?: string;
@@ -59,7 +59,7 @@ export class WaitGroup {
   add(delta: number): void {
     // Fast validation
     if (typeof delta !== 'number' || isNaN(delta)) {
-      throw new WaitGroupNegativeCounterError(delta);
+      throw new WaitGroupNegativeCounterError(delta, this.name);
     }
 
     const newCounter = this.counter + delta;
@@ -106,9 +106,9 @@ export class WaitGroup {
 
     // Create wait promise if it doesn't exist
     if (!this.waitPromise) {
-      this.waitPromise = new Promise<void>((resolve, reject) => {
+      this.waitPromise = new Promise<void>(resolve => {
         this.waitResolve = resolve;
-        this.waitReject = reject;
+        // this.waitReject = reject;
       });
     }
 
@@ -200,7 +200,7 @@ export class WaitGroup {
   private resetWaitPromise(): void {
     this.waitPromise = null;
     this.waitResolve = null;
-    this.waitReject = null;
+    // this.waitReject = null;
   }
 }
 

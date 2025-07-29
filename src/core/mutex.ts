@@ -31,7 +31,7 @@ export class Mutex {
   private locked = false;
   private lockPromise: Promise<void> | null = null;
   private lockResolve: (() => void) | null = null;
-  private lockReject: ((err: Error) => void) | null = null;
+  // private lockReject: ((err: Error) => void) | null = null;
   private readonly timeout: number;
   private readonly name?: string;
 
@@ -67,9 +67,9 @@ export class Mutex {
 
     // Create lock promise if it doesn't exist
     if (!this.lockPromise) {
-      this.lockPromise = new Promise<void>((resolve, reject) => {
+      this.lockPromise = new Promise<void>(resolve => {
         this.lockResolve = resolve;
-        this.lockReject = reject;
+        // this.lockReject = reject;
       });
     }
 
@@ -140,7 +140,7 @@ export class Mutex {
   private resetLockPromise(): void {
     this.lockPromise = null;
     this.lockResolve = null;
-    this.lockReject = null;
+    // this.lockReject = null;
   }
 }
 

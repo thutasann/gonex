@@ -166,11 +166,11 @@ export class WaitGroupError extends GonexError {
 }
 
 export class WaitGroupNegativeCounterError extends WaitGroupError {
-  constructor(counter: number) {
+  constructor(counter: number, name?: string) {
     super(
       `WaitGroup counter cannot be negative: ${counter}`,
       'WAITGROUP_NEGATIVE_COUNTER',
-      { counter }
+      { counter, name }
     );
     this.name = 'WaitGroupNegativeCounterError';
   }
