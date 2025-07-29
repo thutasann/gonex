@@ -112,6 +112,14 @@ This project uses automated CI/CD with GitHub Actions:
 - **Quality:** Comprehensive test coverage and TypeScript strict mode
 - **Documentation:** Auto-generated API docs
 
+## 👉🏻 Next Steps
+
+- Limitations and Considerations
+  - Not True Parallelism: Still single-threaded, just better concurrency
+  - Event Loop Saturation: Too many concurrent operations can still overwhelm the event loop
+  - Debugging Complexity: Async stack traces can be harder to debug
+  - Memory Overhead: Each goroutine creates Promise objects
+
 ### Contributing
 
 1. Fork the repository
