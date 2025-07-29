@@ -1,4 +1,5 @@
 // @ts-check
+// NOTE: This example is still not stable, and some of the code is not working as expected.
 import { go, channel, waitGroup, mutex, semaphore, once, sleep } from 'gonex';
 
 console.log('=== Combined Example: Web Server Simulator ===\n');
@@ -6,21 +7,21 @@ console.log('=== Combined Example: Web Server Simulator ===\n');
 // Simulate a web server with connection pooling, rate limiting, and shared state
 class WebServerSimulator {
   constructor() {
-    this.connectionPool = semaphore(5); // Max 5 concurrent connections
+    this.connectionPool = semaphore({ permits: 5 }); // Max 5 concurrent connections
     this.rateLimiter = mutex(); // Rate limiting mutex
-    this.requestChannel = channel(10); // Request queue
-    this.responseChannel = channel(10); // Response queue
+    this.requestChannel = channel({ bufferSize: 10 }); // Request queue
+    this.responseChannel = channel({ bufferSize: 10 }); // Response queue
     this.activeRequests = 0;
     this.totalRequests = 0;
     this.sharedState = { users: 0, requests: 0 };
     this.stateMutex = mutex();
 
     // Initialize server once
-    this.initServer = once(async () => {
+    this.initServer = once({ name: 'initServer' });
+    this.initServer.do(async () => {
       console.log('   🔧 Initializing server...');
       await sleep(200);
       console.log('   ✅ Server initialized!');
-      return 'server-ready';
     });
   }
 
@@ -62,7 +63,11 @@ class WebServerSimulator {
 
   async start() {
     // Initialize server
-    await this.initServer();
+    await this.initServer.do(async () => {
+      console.log('   🔧 Initializing server...');
+      await sleep(200);
+      console.log('   ✅ Server initialized!');
+    });
 
     // Start request handlers
     const wg = waitGroup();
@@ -92,8 +97,8 @@ server.start();
 
 // Example 2: Producer-Consumer Pattern
 console.log('\n2. Producer-Consumer Pattern:');
-const taskQueue = channel(5);
-const resultQueue = channel(5);
+const taskQueue = channel({ bufferSize: 5 });
+const resultQueue = channel({ bufferSize: 5 });
 const producerWg = waitGroup();
 const consumerWg = waitGroup();
 
@@ -115,6 +120,7 @@ for (let i = 1; i <= 3; i++) {
 for (let i = 1; i <= 2; i++) {
   consumerWg.add(1);
   go(async () => {
+    // eslint-disable-next-line no-constant-condition
     while (true) {
       try {
         const task = await taskQueue.receive();
@@ -145,6 +151,7 @@ go(async () => {
   // Collect all results
   const results = [];
   try {
+    // eslint-disable-next-line no-constant-condition
     while (true) {
       const result = await resultQueue.receive();
       results.push(result);
@@ -156,7 +163,7 @@ go(async () => {
 
 // Example 3: Resource Management with Semaphore and Mutex
 console.log('\n3. Resource Management:');
-const databasePool = semaphore(3);
+const databasePool = semaphore({ permits: 3 });
 const cacheMutex = mutex();
 const cache = new Map();
 
