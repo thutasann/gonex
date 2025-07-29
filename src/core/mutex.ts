@@ -27,7 +27,7 @@ export type MutexOptions = {
  *
  * Similar to Go's sync.Mutex but adapted for Node.js with timeout support
  */
-class Mutex {
+export class Mutex {
   private locked = false;
   private lockPromise: Promise<void> | null = null;
   private lockResolve: (() => void) | null = null;
