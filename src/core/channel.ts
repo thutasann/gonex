@@ -32,7 +32,7 @@ export type ChannelOptions = {
  *
  * @template T - The type of values that can be sent through the channel
  */
-class Channel<T> {
+export class Channel<T> {
   private buffer: CircularQueue<T>;
   private sendQueue: Array<{
     value: T;
