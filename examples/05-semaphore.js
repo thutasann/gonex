@@ -5,7 +5,7 @@ console.log('=== Semaphore Example ===\n');
 
 // Example 1: Basic semaphore usage
 console.log('1. Basic semaphore usage:');
-const sem1 = semaphore(2); // Allow 2 concurrent access
+const sem1 = semaphore({ permits: 2 }); // Allow 2 concurrent access
 
 for (let i = 1; i <= 4; i++) {
   go(async () => {
@@ -19,7 +19,7 @@ for (let i = 1; i <= 4; i++) {
 
 // Example 2: Semaphore with timeout
 console.log('\n2. Semaphore with timeout:');
-const sem2 = semaphore(1);
+const sem2 = semaphore({ permits: 1 });
 
 go(async () => {
   await sem2.acquire();
@@ -41,7 +41,7 @@ go(async () => {
 
 // Example 3: Semaphore with tryAcquire
 console.log('\n3. Semaphore with tryAcquire:');
-const sem3 = semaphore(1);
+const sem3 = semaphore({ permits: 1 });
 
 go(async () => {
   await sem3.acquire();
@@ -63,7 +63,7 @@ go(async () => {
 
 // Example 4: Semaphore for resource pooling
 console.log('\n4. Semaphore for resource pooling:');
-const pool = semaphore(3); // Pool of 3 resources
+const pool = semaphore({ permits: 3 }); // Pool of 3 resources
 let activeConnections = 0;
 
 async function useResource(id) {
@@ -89,7 +89,7 @@ for (let i = 1; i <= 5; i++) {
 
 // Example 5: Semaphore with error handling
 console.log('\n5. Semaphore with error handling:');
-const sem4 = semaphore(1);
+const sem4 = semaphore({ permits: 1 });
 
 go(async () => {
   await sem4.acquire();
