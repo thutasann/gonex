@@ -1,18 +1,3 @@
-import { validateDuration } from './validators';
-
-/**
- * Sleep function for cooperative yielding
- * @param duration - Duration to sleep in milliseconds
- * @returns Promise that resolves after the specified duration
- */
-export function sleep(duration: number): Promise<void> {
-  validateDuration(duration, 'sleep duration');
-
-  return new Promise(resolve => {
-    setTimeout(resolve, duration);
-  });
-}
-
 /**
  * Create a promise that times out after a specified duration
  * @param promise - The promise to wrap
@@ -159,18 +144,8 @@ export function pick<T, K extends keyof T>(obj: T, keys: K[]): Pick<T, K> {
   return result;
 }
 
-export function nextTick(): Promise<void> {
-  return new Promise(resolve => {
-    process.nextTick(resolve);
-  });
-}
-
 export function setImmediateFn(): Promise<void> {
   return new Promise(resolve => {
     setImmediate(resolve);
   });
-}
-
-export function yieldFn(): Promise<void> {
-  return nextTick();
 }
