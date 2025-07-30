@@ -1,9 +1,9 @@
 import {
   createCancellablePromise,
   createTimeoutPromise,
-  sleep,
   validateTimeout,
 } from '../utils';
+import { sleep } from './timing';
 
 /**
  * Options for configuring goroutine behavior
