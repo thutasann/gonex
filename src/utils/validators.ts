@@ -111,13 +111,13 @@ export function validateChannelOperation(operation: 'send' | 'receive'): void {
   }
 }
 
-export type ContextOptions = {
+export type ValidateContextOptions = {
   timeout?: number;
   deadline?: Date;
   values?: Record<string, AnyValue>;
 };
 
-export function validateContextOptions(options: ContextOptions): void {
+export function validateContextOptions(options: ValidateContextOptions): void {
   if (options.timeout !== undefined) {
     validateTimeout(options.timeout);
   }
