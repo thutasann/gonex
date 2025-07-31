@@ -231,6 +231,16 @@ export class Channel<T> {
       return undefined;
     }
 
+    // For unbuffered channels, check for waiting senders
+    if (this.bufferSize === 0 && this.sendQueue.length > 0) {
+      const sender = this.sendQueue.shift()!;
+      if (sender.timeoutId) {
+        clearTimeout(sender.timeoutId);
+      }
+      sender.resolve();
+      return sender.value;
+    }
+
     return undefined;
   }
 
@@ -300,7 +310,28 @@ export class Channel<T> {
    * Optimized to process multiple operations in a single pass
    */
   private processSendQueue() {
-    // Process as many send operations as possible in one pass
+    // For unbuffered channels, prioritize waiting receivers
+    if (this.bufferSize === 0) {
+      while (this.sendQueue.length > 0 && this.receiveQueue.length > 0) {
+        const sendOp = this.sendQueue.shift()!;
+        const receiveOp = this.receiveQueue.shift()!;
+
+        // Clear timeouts if they exist
+        if (sendOp.timeoutId) {
+          clearTimeout(sendOp.timeoutId);
+        }
+        if (receiveOp.timeoutId) {
+          clearTimeout(receiveOp.timeoutId);
+        }
+
+        // Direct transfer from sender to receiver
+        receiveOp.resolve(sendOp.value);
+        sendOp.resolve();
+      }
+      return;
+    }
+
+    // For buffered channels, process as many send operations as possible
     while (this.sendQueue.length > 0 && !this.buffer.isFull) {
       const sendOp = this.sendQueue.shift()!;
 

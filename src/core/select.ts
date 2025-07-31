@@ -63,8 +63,18 @@ export async function select<T>(
     return undefined as AnyValue;
   }
 
-  // Slow path: poll with exponential backoff
-  return pollSelectCases(cases, timeout);
+  // Check if we have any unbuffered channels
+  const hasUnbufferedChannels = cases.some(
+    case_ => case_.channel.capacity() === 0
+  );
+
+  if (hasUnbufferedChannels) {
+    // Use race-based approach for unbuffered channels
+    return raceSelectCases(cases, timeout);
+  } else {
+    // Use polling approach for buffered channels
+    return pollSelectCases(cases, timeout);
+  }
 }
 
 /**
@@ -99,6 +109,60 @@ function trySelectCase<T>(selectCase: SelectCase<T>): T | null {
     }
   }
   return null;
+}
+
+/**
+ * Race-based select implementation for unbuffered channels
+ *
+ * Creates promises for all cases and races them to see which completes first
+ *
+ * @param cases - Array of select cases
+ * @param timeout - Overall timeout for the operation
+ * @returns Promise that resolves with the first successful case result
+ */
+async function raceSelectCases<T>(
+  cases: SelectCase<T>[],
+  timeout: number
+): Promise<T> {
+  // Create promises for all cases
+  const promises: Promise<T>[] = cases.map(selectCase => {
+    const { channel, operation, value, handler } = selectCase;
+
+    if (operation === 'send') {
+      if (value === undefined) {
+        throw new Error('Value is required for send operations');
+      }
+
+      return channel.send(value).then(() => {
+        if (handler) {
+          handler(value);
+        }
+        return value;
+      });
+    } else if (operation === 'receive') {
+      return channel.receive().then(received => {
+        if (received !== undefined && handler) {
+          handler(received);
+        }
+        return received as T;
+      });
+    }
+
+    throw new Error(`Invalid operation: ${operation}`);
+  });
+
+  // Add timeout promise if specified
+  if (timeout !== INFINITE_TIMEOUT) {
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new Error(`Select operation timed out after ${timeout}ms`));
+      }, timeout);
+    });
+    promises.push(timeoutPromise);
+  }
+
+  // Race all promises
+  return Promise.race(promises);
 }
 
 /**
