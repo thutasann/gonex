@@ -1,5 +1,5 @@
 // @ts-check
-import { go, channel, sleep } from 'gonex';
+import { go, channel, sleep } from '../../dist/index.js';
 
 console.log('=== Channels Example ===\n');
 

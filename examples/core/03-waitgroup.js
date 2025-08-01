@@ -1,5 +1,5 @@
 // @ts-check
-import { go, waitGroup, sleep } from 'gonex';
+import { go, waitGroup, sleep } from '../../dist/index.js';
 
 console.log('=== WaitGroup Example ===\n');
 
