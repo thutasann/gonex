@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document outlines the architecture for achieving true parallelism in the Go-inspired concurrency library, transforming it from single-threaded concurrency to multi-process parallelism while maintaining excellent developer experience.
+This document outlines the architecture for achieving true parallelism in the Go-inspired concurrency library, transforming it from single-threaded concurrency to multi-threaded parallelism using Node.js Worker Threads while maintaining excellent developer experience.
 
 ## Current Limitations
 
@@ -10,13 +10,13 @@ This document outlines the architecture for achieving true parallelism in the Go
 
 - **Problem**: All goroutines run on the main event loop
 - **Impact**: No true parallelism, only concurrency
-- **Solution**: Multi-process architecture with shared memory
+- **Solution**: Worker threads architecture with shared memory
 
 ### Event Loop Saturation
 
 - **Problem**: Too many concurrent operations overwhelm the event loop
 - **Impact**: Poor performance under high load
-- **Solution**: Distributed execution across multiple processes
+- **Solution**: Distributed execution across multiple threads
 
 ### Memory Overhead
 
@@ -26,11 +26,11 @@ This document outlines the architecture for achieving true parallelism in the Go
 
 ## System Architecture
 
-### Multi-Process Architecture
+### Multi-Thread Architecture with Worker Threads
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Main Process  │    │  Worker Process │    │  Worker Process │
+│   Main Thread   │    │  Worker Thread  │    │  Worker Thread  │
 │                 │    │                 │    │                 │
 │ ┌─────────────┐ │    │ ┌─────────────┐ │    │ ┌─────────────┐ │
 │ │  Scheduler  │ │◄──►│ │   Worker    │ │    │ │   Worker    │ │
@@ -45,23 +45,27 @@ This document outlines the architecture for achieving true parallelism in the Go
 
 **Benefits:**
 
-- True parallelism across CPU cores
-- Process isolation for fault tolerance
-- Independent event loops per process
-- Shared memory for fast inter-process communication
+- True parallelism across CPU cores using Node.js Worker Threads
+- Thread isolation for fault tolerance
+- Independent event loops per thread
+- Shared memory for fast inter-thread communication
+- Native Node.js integration with minimal overhead
 
 ### Core Components
 
-#### 1. Worker Process Manager
+#### 1. Worker Thread Manager
 
 ```typescript
-interface WorkerPoolConfig {
-  minWorkers: number; // Minimum workers per process
-  maxWorkers: number; // Maximum workers per process
+import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
+
+interface WorkerThreadConfig {
+  minWorkers: number; // Minimum workers per thread
+  maxWorkers: number; // Maximum workers per thread
   workerTimeout: number; // Worker lifecycle timeout
   loadBalancing: 'round-robin' | 'least-busy' | 'weighted';
   autoScaling: boolean; // Dynamic worker scaling
   cpuAffinity: boolean; // Pin workers to CPU cores
+  sharedMemory: boolean; // Enable SharedArrayBuffer
 }
 ```
 
@@ -71,120 +75,177 @@ interface WorkerPoolConfig {
 interface SharedMemoryConfig {
   bufferSize: number; // Shared memory buffer size
   messageQueue: boolean; // Enable message queuing
-  zeroCopy: boolean; // Zero-copy data transfer
+  zeroCopy: boolean; // Zero-copy data transfer using transferList
   compression: boolean; // Compress large messages
+  atomics: boolean; // Use Atomics for synchronization
 }
 ```
 
-#### 3. Distributed Channel System
+#### 3. Thread-Safe Channel System
 
 ```typescript
-interface DistributedChannel<T> {
+interface ThreadSafeChannel<T> {
   // Local operations
   send(data: T): Promise<void>;
   receive(): Promise<T>;
 
-  // Distributed operations
+  // Thread operations
   broadcast(data: T): Promise<void>;
   scatter(data: T[]): Promise<void>;
   gather(): Promise<T[]>;
 
   // Routing
-  route(workerId: number): Promise<void>;
+  route(threadId: number): Promise<void>;
   balance(): Promise<void>;
 }
 ```
 
 ## Implementation Strategy
 
-### Phase 1: Process-Based Parallelism
+### Phase 1: Worker Thread-Based Parallelism
 
-#### Worker Process Architecture
+#### Worker Thread Architecture
 
 ```typescript
-class WorkerProcess {
-  private workerPool: WorkerPool;
-  private channelManager: ChannelManager;
-  private sharedMemory: SharedMemoryManager;
+class WorkerThreadManager {
+  private workers: Worker[] = [];
+  private sharedBuffers: Map<number, SharedArrayBuffer> = new Map();
+  private loadBalancer: LoadBalancer;
 
-  async start() {
-    // Initialize shared memory
-    await this.sharedMemory.initialize();
+  async start(numWorkers: number = os.cpus().length) {
+    for (let i = 0; i < numWorkers; i++) {
+      const worker = new Worker(
+        `
+        const { parentPort, workerData } = require('worker_threads');
+        
+        // Worker thread implementation
+        parentPort.on('message', async (message) => {
+          try {
+            const result = await executeFunction(message.fn);
+            parentPort.postMessage({ 
+              id: message.id, 
+              result, 
+              success: true 
+            });
+          } catch (error) {
+            parentPort.postMessage({ 
+              id: message.id, 
+              error: error.message, 
+              success: false 
+            });
+          }
+        });
+      `,
+        {
+          eval: true,
+          workerData: { workerId: i },
+        }
+      );
 
-    // Start worker pool
-    await this.workerPool.start();
+      // Set up message handling
+      worker.on('message', this.handleWorkerMessage.bind(this));
+      worker.on('error', this.handleWorkerError.bind(this));
+      worker.on('exit', this.handleWorkerExit.bind(this));
 
-    // Start channel manager
-    await this.channelManager.start();
+      this.workers.push(worker);
+    }
 
-    // Listen for work from main process
-    this.listenForWork();
+    this.loadBalancer = new LoadBalancer(this.workers);
   }
 
-  private async listenForWork() {
-    while (true) {
-      const work = await this.sharedMemory.receiveWork();
-      const result = await this.workerPool.execute(work);
-      await this.sharedMemory.sendResult(result);
-    }
+  async execute<T>(fn: () => T | Promise<T>): Promise<T> {
+    const worker = this.loadBalancer.selectWorker();
+    const messageId = this.generateMessageId();
+
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('Worker execution timeout'));
+      }, 30000);
+
+      const messageHandler = (message: any) => {
+        if (message.id === messageId) {
+          clearTimeout(timeout);
+          worker.off('message', messageHandler);
+
+          if (message.success) {
+            resolve(message.result);
+          } else {
+            reject(new Error(message.error));
+          }
+        }
+      };
+
+      worker.on('message', messageHandler);
+      worker.postMessage({ id: messageId, fn: fn.toString() });
+    });
   }
 }
 ```
 
-#### Main Process Scheduler
+#### Main Thread Scheduler
 
 ```typescript
 class ParallelScheduler {
-  private workerProcesses: WorkerProcess[] = [];
-  private loadBalancer: LoadBalancer;
-  private channelManager: DistributedChannelManager;
+  private workerThreadManager: WorkerThreadManager;
+  private channelManager: ThreadSafeChannelManager;
+  private sharedMemory: SharedMemoryManager;
 
   async start(numWorkers: number = os.cpus().length) {
-    // Spawn worker processes
-    for (let i = 0; i < numWorkers; i++) {
-      const worker = new WorkerProcess();
-      await worker.start();
-      this.workerProcesses.push(worker);
-    }
+    // Initialize worker thread manager
+    this.workerThreadManager = new WorkerThreadManager();
+    await this.workerThreadManager.start(numWorkers);
 
-    // Initialize load balancer
-    this.loadBalancer = new LoadBalancer(this.workerProcesses);
+    // Initialize shared memory
+    this.sharedMemory = new SharedMemoryManager();
+    await this.sharedMemory.initialize();
 
-    // Start distributed channel manager
+    // Start thread-safe channel manager
     await this.channelManager.start();
   }
 
   async go<T>(fn: () => T | Promise<T>): Promise<T> {
-    const worker = this.loadBalancer.selectWorker();
-    return worker.execute(fn);
+    return this.workerThreadManager.execute(fn);
   }
 }
 ```
 
 ### Phase 2: Shared Memory Optimization
 
-#### Zero-Copy Data Transfer
+#### Zero-Copy Data Transfer with SharedArrayBuffer
 
 ```typescript
 class SharedMemoryManager {
-  private buffers: Map<string, SharedArrayBuffer> = new Map();
-  private atomicOperations: AtomicOperations;
+  private sharedBuffers: Map<string, SharedArrayBuffer> = new Map();
 
-  async sendData<T>(data: T, targetProcess: number): Promise<void> {
-    const buffer = this.getOrCreateBuffer(targetProcess);
+  createSharedBuffer(size: number): SharedArrayBuffer {
+    const buffer = new SharedArrayBuffer(size);
+    const id = this.generateBufferId();
+    this.sharedBuffers.set(id, buffer);
+    return buffer;
+  }
+
+  async transferData<T>(data: T, targetWorker: Worker): Promise<void> {
     const serialized = this.serialize(data);
+    const buffer = this.createSharedBuffer(serialized.length);
 
-    // Zero-copy transfer using SharedArrayBuffer
-    const offset = this.atomicOperations.allocate(buffer, serialized.length);
-    buffer.set(serialized, offset);
+    // Copy data to shared buffer
+    const view = new Uint8Array(buffer);
+    view.set(serialized);
 
-    // Signal target process
-    this.atomicOperations.notify(targetProcess, offset);
+    // Transfer buffer to worker using transferList
+    targetWorker.postMessage(
+      {
+        type: 'shared-data',
+        bufferId: buffer.id,
+        data: buffer,
+      },
+      [buffer]
+    );
   }
 
   async receiveData<T>(): Promise<T> {
     const buffer = this.getCurrentBuffer();
-    const offset = await this.atomicOperations.waitForData();
+    const offset = await this.waitForData();
     const data = buffer.slice(offset);
     return this.deserialize(data);
   }
@@ -193,32 +254,56 @@ class SharedMemoryManager {
 
 ### Phase 3: Advanced Features
 
-#### Distributed Channel Implementation
+#### Thread-Safe Channel Implementation
 
 ```typescript
-class DistributedChannel<T> {
-  private localChannel: Channel<T>;
-  private distributedManager: DistributedChannelManager;
-  private routingTable: Map<number, number> = new Map();
+class ThreadSafeChannel<T> {
+  private buffer: SharedArrayBuffer;
+  private mutex: Int32Array;
+  private condition: Int32Array;
+  private data: T[] = [];
+
+  constructor(bufferSize: number = 1024) {
+    this.buffer = new SharedArrayBuffer(bufferSize);
+    this.mutex = new Int32Array(this.buffer, 0, 1);
+    this.condition = new Int32Array(this.buffer, 4, 1);
+  }
 
   async send(data: T): Promise<void> {
-    // Check if data should be routed to another process
-    const targetProcess = this.routingTable.get(this.hash(data));
+    // Acquire mutex using Atomics
+    while (Atomics.compareExchange(this.mutex, 0, 0, 1) !== 0) {
+      Atomics.wait(this.mutex, 0, 0);
+    }
 
-    if (targetProcess !== undefined) {
-      await this.distributedManager.sendToProcess(targetProcess, data);
-    } else {
-      await this.localChannel.send(data);
+    try {
+      this.data.push(data);
+      // Signal waiting receivers
+      Atomics.store(this.condition, 0, 1);
+      Atomics.notify(this.condition, 0);
+    } finally {
+      // Release mutex
+      Atomics.store(this.mutex, 0, 0);
+      Atomics.notify(this.mutex, 0);
     }
   }
 
   async receive(): Promise<T> {
-    // Try local channel first
+    // Acquire mutex
+    while (Atomics.compareExchange(this.mutex, 0, 0, 1) !== 0) {
+      Atomics.wait(this.mutex, 0, 0);
+    }
+
     try {
-      return await this.localChannel.receive();
-    } catch {
-      // Fall back to distributed receive
-      return await this.distributedManager.receiveFromAny();
+      while (this.data.length === 0) {
+        // Wait for data
+        Atomics.wait(this.condition, 0, 0);
+      }
+
+      return this.data.shift()!;
+    } finally {
+      // Release mutex
+      Atomics.store(this.mutex, 0, 0);
+      Atomics.notify(this.mutex, 0);
     }
   }
 }
@@ -226,20 +311,27 @@ class DistributedChannel<T> {
 
 ## Performance Optimizations
 
-### CPU Affinity and NUMA Awareness
+### CPU Affinity and Thread Management
 
 ```typescript
-class CPUAffinityManager {
-  private numaNodes: NUMANode[] = [];
-  private cpuTopology: CPUTopology;
+class ThreadAffinityManager {
+  private threadMapping: Map<number, number> = new Map();
 
   assignWorkerToCPU(workerId: number, cpuId: number): void {
-    // Pin worker to specific CPU core
-    process.setAffinity([cpuId]);
+    // Note: CPU affinity requires native modules in Node.js
+    // This is a conceptual implementation
+    this.threadMapping.set(workerId, cpuId);
 
-    // Optimize for NUMA locality
-    const numaNode = this.getNUMANode(cpuId);
-    this.allocateMemoryOnNUMA(workerId, numaNode);
+    // In practice, you'd use a native module like 'node-cpu-affinity'
+    // require('node-cpu-affinity').setAffinity(process.pid, [cpuId]);
+  }
+
+  optimizeThreadPlacement(): void {
+    const cpus = os.cpus();
+    this.workers.forEach((worker, index) => {
+      const cpuId = index % cpus.length;
+      this.assignWorkerToCPU(index, cpuId);
+    });
   }
 }
 ```
@@ -259,6 +351,10 @@ class MemoryPool {
   release(buffer: SharedArrayBuffer): void {
     const pool = this.getPool(buffer.byteLength);
     pool.push(buffer);
+  }
+
+  private createNewBuffer(size: number): SharedArrayBuffer {
+    return new SharedArrayBuffer(size);
   }
 }
 ```
@@ -288,23 +384,30 @@ class WorkStealingScheduler {
 
 ## Robustness and Fault Tolerance
 
-### Process Health Monitoring
+### Worker Thread Health Monitoring
 
 ```typescript
-class HealthMonitor {
-  private workers: Map<number, WorkerHealth> = new Map();
-  private failureThreshold: number = 3;
+class WorkerThreadHealthMonitor {
+  private workerHealth: Map<number, WorkerHealth> = new Map();
 
-  async monitorWorker(workerId: number): Promise<void> {
-    const health = this.workers.get(workerId);
+  monitorWorker(worker: Worker, workerId: number): void {
+    worker.on('error', error => {
+      console.error(`Worker ${workerId} error:`, error);
+      this.handleWorkerFailure(workerId, error);
+    });
 
-    if (health.failureCount > this.failureThreshold) {
-      await this.restartWorker(workerId);
-    }
+    worker.on('exit', code => {
+      if (code !== 0) {
+        console.error(`Worker ${workerId} exited with code ${code}`);
+        this.restartWorker(workerId);
+      }
+    });
+  }
 
-    if (health.memoryUsage > this.memoryThreshold) {
-      await this.evictWorker(workerId);
-    }
+  private async restartWorker(workerId: number): Promise<void> {
+    const newWorker = await this.createWorker(workerId);
+    this.workers[workerId] = newWorker;
+    console.log(`Worker ${workerId} restarted successfully`);
   }
 }
 ```
@@ -362,12 +465,13 @@ class CircuitBreaker {
 // Current API remains unchanged
 const result = await go(() => expensiveComputation());
 
-// New API with parallelism hints
+// New API with worker threads
 const result = await goParallel(() => expensiveComputation(), {
-  parallelism: 'auto', // Use all available cores
-  cpuAffinity: true, // Pin to specific CPU
-  memoryPool: 'shared', // Use shared memory
-  faultTolerance: 'circuit-breaker',
+  useWorkerThreads: true, // Enable worker threads
+  threadCount: 'auto', // Use all CPU cores
+  sharedMemory: true, // Use shared memory
+  cpuAffinity: true, // Pin to specific cores
+  loadBalancing: 'least-busy', // Intelligent load balancing
 });
 ```
 
@@ -417,8 +521,8 @@ class IntelligentLoadBalancer {
 | **CPU Utilization**   | 25% (single core)        | 95% (all cores)    | 280%          |
 | **Memory Efficiency** | High overhead            | Optimized pools    | 60% reduction |
 | **Latency**           | Event loop bound         | Parallel execution | 75% reduction |
-| **Throughput**        | Limited by single thread | Multi-process      | 400% increase |
-| **Fault Tolerance**   | Process crash            | Automatic recovery | 99.9% uptime  |
+| **Throughput**        | Limited by single thread | Multi-threaded     | 400% increase |
+| **Fault Tolerance**   | Thread crash             | Automatic recovery | 99.9% uptime  |
 
 ### Scalability Characteristics
 
@@ -437,18 +541,18 @@ const performance = {
 ### Phase 1: Backward Compatibility
 
 - Maintain existing API
-- Add parallel execution as opt-in feature
+- Add worker thread execution as opt-in feature
 - Gradual migration path
 
 ### Phase 2: Performance Optimization
 
 - Implement shared memory communication
-- Add CPU affinity and NUMA awareness
+- Add CPU affinity and thread optimization
 - Optimize memory pools
 
 ### Phase 3: Advanced Features
 
-- Distributed channels across processes
+- Distributed channels across threads
 - Intelligent load balancing
 - Advanced fault tolerance
 
@@ -458,13 +562,13 @@ const performance = {
 
 ```typescript
 interface ParallelismConfig {
-  // Process management
-  workerProcesses: number; // Number of worker processes
-  workerTimeout: number; // Worker lifecycle timeout
-  autoRestart: boolean; // Auto-restart failed workers
+  // Thread management
+  workerThreads: number; // Number of worker threads
+  threadTimeout: number; // Thread lifecycle timeout
+  autoRestart: boolean; // Auto-restart failed threads
 
   // CPU optimization
-  cpuAffinity: boolean; // Pin workers to CPU cores
+  cpuAffinity: boolean; // Pin threads to CPU cores
   numaAware: boolean; // NUMA-aware memory allocation
 
   // Memory optimization
@@ -475,7 +579,7 @@ interface ParallelismConfig {
   // Load balancing
   loadBalancingStrategy: 'round-robin' | 'least-busy' | 'weighted';
   workStealing: boolean; // Enable work stealing
-  autoScaling: boolean; // Dynamic worker scaling
+  autoScaling: boolean; // Dynamic thread scaling
 
   // Fault tolerance
   circuitBreaker: boolean; // Enable circuit breaker
@@ -496,23 +600,24 @@ const result = await goParallel(
     return expensiveComputation();
   },
   {
-    parallelism: 'auto',
+    useWorkerThreads: true,
+    threadCount: 'auto',
     cpuAffinity: true,
   }
 );
 ```
 
-#### Distributed Channel Usage
+#### Thread-Safe Channel Usage
 
 ```typescript
 import { channel, goParallel } from 'gonex';
 
-const ch = channel<number>({ distributed: true });
+const ch = channel<number>({ threadSafe: true });
 
-// Send data across processes
+// Send data across threads
 await ch.send(42);
 
-// Receive data from any process
+// Receive data from any thread
 const data = await ch.receive();
 ```
 
@@ -531,14 +636,89 @@ const result = await goParallel(
 );
 ```
 
+#### CPU-Intensive Tasks
+
+```typescript
+// Perfect for CPU-bound operations
+const results = await goAll(
+  [
+    () => computePrimeNumbers(1000000),
+    () => processImageData(largeImage),
+    () => runMachineLearningModel(data),
+    () => encryptLargeFile(file),
+  ],
+  { useWorkerThreads: true }
+);
+```
+
+#### Shared Memory Communication
+
+```typescript
+// Efficient data sharing between threads
+const sharedBuffer = new SharedArrayBuffer(1024);
+const sharedChannel = new ThreadSafeChannel(sharedBuffer);
+
+// Producer thread
+go(
+  async () => {
+    for (let i = 0; i < 1000; i++) {
+      await sharedChannel.send({ id: i, data: `item-${i}` });
+    }
+  },
+  { useWorkerThreads: true }
+);
+
+// Consumer thread
+go(
+  async () => {
+    for (let i = 0; i < 1000; i++) {
+      const item = await sharedChannel.receive();
+      processItem(item);
+    }
+  },
+  { useWorkerThreads: true }
+);
+```
+
+## Node.js Worker Threads Integration
+
+### Why Worker Threads Are Essential
+
+Worker threads provide the missing piece for true parallelism:
+
+1. **True Parallelism**: Each worker runs on a separate OS thread
+2. **CPU Core Utilization**: Can use all available CPU cores
+3. **Shared Memory**: `SharedArrayBuffer` for zero-copy data transfer
+4. **Message Passing**: Built-in communication between threads
+5. **Native Integration**: Part of Node.js core, no external dependencies
+
+### Key Worker Thread Features Used
+
+- **Worker Constructor**: Create worker threads
+- **SharedArrayBuffer**: Zero-copy data sharing
+- **Atomics**: Thread-safe operations
+- **Message Passing**: Inter-thread communication
+- **Transfer Lists**: Efficient data transfer
+
+### Benefits Over Multi-Process Approach
+
+| Aspect               | Multi-Process             | Worker Threads         |
+| -------------------- | ------------------------- | ---------------------- |
+| **Memory Overhead**  | High (separate processes) | Low (shared memory)    |
+| **Startup Time**     | Slow (process creation)   | Fast (thread creation) |
+| **Communication**    | IPC (slow)                | Shared memory (fast)   |
+| **Resource Sharing** | Limited                   | Full access            |
+| **Debugging**        | Complex                   | Simpler                |
+
 ## Conclusion
 
-This parallelism architecture transforms the library from single-threaded concurrency to true parallelism while maintaining the excellent developer experience and Go-inspired API. The multi-process approach with shared memory communication provides:
+This parallelism architecture transforms the library from single-threaded concurrency to true parallelism using Node.js Worker Threads while maintaining the excellent developer experience and Go-inspired API. The worker threads approach with shared memory communication provides:
 
-- **True Parallelism**: Utilizes all CPU cores
+- **True Parallelism**: Utilizes all CPU cores through worker threads
 - **High Performance**: Zero-copy data transfer and optimized memory pools
 - **Fault Tolerance**: Automatic recovery and graceful degradation
 - **Developer Experience**: Seamless API migration and intelligent load balancing
 - **Scalability**: Linear scaling with CPU cores
+- **Native Integration**: Leverages Node.js built-in worker threads
 
-The architecture ensures that the library can handle high-performance, concurrent workloads while maintaining the simplicity and elegance of the original Go-inspired design.
+The architecture ensures that the library can handle high-performance, concurrent workloads while maintaining the simplicity and elegance of the original Go-inspired design, now with true parallel execution capabilities.
