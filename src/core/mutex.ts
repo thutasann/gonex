@@ -1,7 +1,7 @@
 import {
   DEFAULT_MUTEX_TIMEOUT,
   INFINITE_TIMEOUT,
-  MutexAlreadyLockedError,
+  MutexNotLockedError,
   createTimeoutPromise,
   validateTimeout,
 } from '../utils';
@@ -81,6 +81,13 @@ export class Mutex {
 
     try {
       await promise;
+      // After being woken up, we need to acquire the lock
+      // But we need to ensure only one goroutine gets it
+      if (this.locked) {
+        // Another goroutine already got the lock, wait again
+        return this.lock(timeout);
+      }
+      this.locked = true;
     } catch (error) {
       // Reset lock promise on error
       this.resetLockPromise();
@@ -111,15 +118,16 @@ export class Mutex {
    */
   unlock(): void {
     if (!this.locked) {
-      throw new MutexAlreadyLockedError(this.name);
+      throw new MutexNotLockedError(this.name);
     }
 
     this.locked = false;
 
     // Fast path: wake up waiting goroutine immediately
     if (this.lockResolve) {
-      this.lockResolve();
+      const resolve = this.lockResolve;
       this.resetLockPromise();
+      resolve();
     }
   }
 

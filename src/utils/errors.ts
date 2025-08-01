@@ -154,6 +154,17 @@ export class MutexAlreadyLockedError extends MutexError {
   }
 }
 
+export class MutexNotLockedError extends MutexError {
+  constructor(mutexName?: string) {
+    super(
+      `Mutex ${mutexName ? `"${mutexName}"` : ''} is not locked`,
+      'MUTEX_NOT_LOCKED',
+      { mutexName }
+    );
+    this.name = 'MutexNotLockedError';
+  }
+}
+
 export class WaitGroupError extends GonexError {
   constructor(
     message: string,
