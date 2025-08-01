@@ -1,6 +1,13 @@
 // @ts-check
-// NOTE: This example is still not stable, and some of the code is not working as expected.
-import { go, channel, waitGroup, mutex, semaphore, once, sleep } from 'gonex';
+import {
+  go,
+  channel,
+  waitGroup,
+  mutex,
+  semaphore,
+  once,
+  sleep,
+} from '../../dist/index.js';
 
 console.log('=== Combined Example: Web Server Simulator ===\n');
 
@@ -124,6 +131,10 @@ for (let i = 1; i <= 2; i++) {
     while (true) {
       try {
         const task = await taskQueue.receive();
+        if (!task) {
+          console.log(`   🔚 Consumer ${i} finished: channel closed`);
+          break;
+        }
         console.log(`   📥 Consumer ${i} processing: ${task.id}`);
         await sleep(150);
         const result = { ...task, processed: true, consumer: i };
@@ -154,6 +165,9 @@ go(async () => {
     // eslint-disable-next-line no-constant-condition
     while (true) {
       const result = await resultQueue.receive();
+      if (!result) {
+        break;
+      }
       results.push(result);
     }
   } catch (error) {
@@ -182,6 +196,17 @@ async function getCachedData(key) {
   // Get from database
   await databasePool.acquire();
   try {
+    // Check cache again after acquiring database lock to handle race conditions
+    await cacheMutex.lock();
+    try {
+      if (cache.has(key)) {
+        console.log(`   💾 Cache hit for: ${key} (after DB lock)`);
+        return cache.get(key);
+      }
+    } finally {
+      cacheMutex.unlock();
+    }
+
     console.log(`   🗄️  Database query for: ${key}`);
     await sleep(200);
     const data = `data-for-${key}`;
