@@ -1,5 +1,5 @@
 // @ts-check
-import { go, mutex, sleep } from 'gonex';
+import { go, mutex, sleep } from '../../dist/index.js';
 
 console.log('=== Mutex Example ===\n');
 
@@ -84,14 +84,14 @@ go(async () => {
 });
 
 go(async () => {
-  await resource2.lock();
-  console.log('   Worker 2 acquired resource 2');
-  await sleep(100);
   await resource1.lock();
   console.log('   Worker 2 acquired resource 1');
   await sleep(100);
-  resource1.unlock();
+  await resource2.lock();
+  console.log('   Worker 2 acquired resource 2');
+  await sleep(100);
   resource2.unlock();
+  resource1.unlock();
   console.log('   Worker 2 released both resources');
 });
 
