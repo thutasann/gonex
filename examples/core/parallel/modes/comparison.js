@@ -1,4 +1,10 @@
 // @ts-check
+/**
+ * - Performance comparison between event loop and worker threads
+ * - Event loop: Good for I/O, single-threaded
+ * - Worker threads: Good for CPU, multi-threaded
+ * - Choose based on task type
+ */
 import {
   goAll,
   initializeParallelScheduler,
@@ -13,12 +19,6 @@ await initializeParallelScheduler({
   sharedMemory: true,
   timeout: 30000,
 });
-
-// Example 5: Performance Comparison
-console.log('5. Performance Comparison:');
-console.log('   - Event loop: Good for I/O, single-threaded');
-console.log('   - Worker threads: Good for CPU, multi-threaded');
-console.log('   - Choose based on task type\n');
 
 // I/O-bound task (event loop is better)
 const ioStartTime = Date.now();
@@ -58,13 +58,5 @@ console.log('CPU-bound tasks (Worker Threads):', cpuResults);
 console.log(`CPU execution time: ${cpuEndTime - cpuStartTime}ms`);
 console.log();
 
-// Example 6: Shutdown
+// Shutdown
 await shutdownParallelScheduler();
-console.log('Shutdown complete!');
-
-console.log('\n=== Execution Modes Demo Complete ===');
-console.log('\nSummary:');
-console.log('✅ Event Loop: Single-threaded concurrency for I/O tasks');
-console.log('✅ Worker Threads: True parallelism for CPU tasks');
-console.log('✅ Mixed Mode: Use both based on task requirements');
-console.log('✅ Clear Logging: Always know which mode is being used');

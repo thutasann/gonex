@@ -17,7 +17,7 @@ A comprehensive TypeScript library that brings Go's powerful concurrency primiti
 - **Semaphore** - Resource limiting and access control
 - **Context** - Cancellation, deadlines, and request-scoped values
 
-### 🚀 True Parallelism with Worker Threads
+### True Parallelism with Worker Threads
 
 - **Multi-Core Execution** - Utilize all CPU cores for CPU-intensive tasks
 - **Automatic Load Balancing** - Round-robin distribution across worker threads
