@@ -3,7 +3,6 @@ import { join } from 'path';
 import { Worker } from 'worker_threads';
 import { log } from '../../utils';
 import { logger } from '../../utils/logger';
-import { LoadBalancer } from './load-balancer';
 
 /**
  * Configuration for worker thread management
@@ -81,11 +80,11 @@ type MesasgeHandlers = Map<
 export class WorkerThreadManager {
   private workers: Worker[] = [];
   private workerHealth: Map<number, WorkerHealth> = new Map();
-  private loadBalancer: LoadBalancer;
   private messageHandlers: MesasgeHandlers = new Map();
   private config: WorkerThreadConfig;
   private isShuttingDown = false;
   private healthMonitoringInterval: NodeJS.Timeout | null = null;
+  private currentWorkerIndex = 0;
 
   constructor(config: Partial<WorkerThreadConfig> = {}) {
     this.config = {
@@ -98,8 +97,6 @@ export class WorkerThreadManager {
       sharedMemory: true,
       ...config,
     };
-
-    this.loadBalancer = new LoadBalancer(this.config.loadBalancing);
   }
 
   /**
@@ -117,9 +114,6 @@ export class WorkerThreadManager {
     for (let i = 0; i < numWorkers; i++) {
       await this.createWorker(i);
     }
-
-    // Start health monitoring
-    this.startHealthMonitoring();
   }
 
   /**
@@ -163,17 +157,10 @@ export class WorkerThreadManager {
     // Set logger to worker thread mode
     logger.setExecutionMode('worker-thread');
 
-    // Validate function for worker execution
-    if (!this.isFunctionSafeForWorker(fn)) {
-      log.warn('Function may not be safe for worker execution', {
-        functionString: fn.toString().substring(0, 100) + '...',
-      });
-    }
-
-    const worker = this.loadBalancer.selectWorker(
-      this.workers,
-      this.workerHealth
-    );
+    // Simple round-robin for maximum speed
+    const worker = this.workers[this.currentWorkerIndex]!;
+    this.currentWorkerIndex =
+      (this.currentWorkerIndex + 1) % this.workers.length;
     const messageId = this.generateMessageId();
     const operationTimeout = timeout ?? this.config.workerTimeout;
 
@@ -207,69 +194,14 @@ export class WorkerThreadManager {
   }
 
   /**
-   * Serialize a function for worker thread execution
+   * Serialize a function for worker thread execution - OPTIMIZED
    *
    * @param fn - Function to serialize
    * @returns Serialized function string
    */
   private serializeFunction(fn: (...args: AnyValue[]) => AnyValue): string {
-    const fnString = fn.toString();
-
-    // Extract just the function body, not the wrapper
-    let functionBody = fnString;
-
-    // Handle different function formats
-    if (fnString.startsWith('function')) {
-      // Named or anonymous function: extract body between { }
-      const bodyMatch = fnString.match(/\{([\s\S]*)\}$/);
-      if (bodyMatch && bodyMatch[1]) {
-        functionBody = bodyMatch[1].trim();
-      }
-    } else if (fnString.startsWith('(') || fnString.startsWith('async')) {
-      // Arrow function: extract body after =>
-      const arrowMatch = fnString.match(/=>\s*(\{[\s\S]*\}|.+)$/);
-      if (arrowMatch && arrowMatch[1]) {
-        functionBody = arrowMatch[1].trim();
-        // If it's not wrapped in {}, wrap it
-        if (!functionBody.startsWith('{')) {
-          functionBody = `{ return ${functionBody}; }`;
-        }
-      }
-    } else {
-      // Fallback: wrap in function body
-      functionBody = `{ return (${fnString})(); }`;
-    }
-
-    return functionBody;
-  }
-
-  /**
-   * Validate that a function is safe for worker thread execution
-   *
-   * @param fn - Function to validate
-   * @returns True if function is safe for worker execution
-   */
-  private isFunctionSafeForWorker(
-    fn: (...args: AnyValue[]) => AnyValue
-  ): boolean {
-    const fnString = fn.toString();
-
-    // Check for common issues that would cause problems in worker threads
-    const problematicPatterns = [
-      /onError/, // References to error handlers
-      /process\./, // Process references (except process.exit which is ok)
-      /global/, // Global references
-      /window/, // Browser references
-      /document/, // DOM references
-    ];
-
-    for (const pattern of problematicPatterns) {
-      if (pattern.test(fnString)) {
-        return false;
-      }
-    }
-
-    return true;
+    // Just return the function as-is for maximum speed
+    return fn.toString();
   }
 
   /**
@@ -361,28 +293,6 @@ export class WorkerThreadManager {
     // Create new worker
     await this.createWorker(workerId);
     log.worker(`Worker ${workerId} restarted successfully`);
-  }
-
-  /**
-   * Start health monitoring
-   */
-  private startHealthMonitoring(): void {
-    this.healthMonitoringInterval = setInterval(() => {
-      if (this.isShuttingDown) {
-        return; // Don't send heartbeats during shutdown
-      }
-
-      this.workers.forEach((worker, index) => {
-        const health = this.workerHealth.get(index);
-        if (health && health.isAlive) {
-          // Send heartbeat
-          worker.postMessage({
-            id: this.generateMessageId(),
-            type: 'heartbeat',
-          });
-        }
-      });
-    }, 5000); // Check every 5 seconds
   }
 
   /**

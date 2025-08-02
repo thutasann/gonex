@@ -6,25 +6,9 @@ parentPort?.on('message', async (message: AnyValue) => {
   try {
     switch (message.type) {
       case 'execute':
-        // Create a function from the serialized code
-        const functionBody = message.fn;
-
-        // Create a completely isolated execution environment
-        const isolatedFunction = new Function(`
-          return (async function() {
-            ${functionBody}
-          })();
-        `);
-
-        // Execute the function in a try-catch to handle any errors
-        let result;
-        try {
-          result = await isolatedFunction();
-        } catch (executionError) {
-          throw new Error(
-            `Function execution failed: ${(executionError as Error).message}`
-          );
-        }
+        // Direct function execution for maximum speed
+        const fn = new Function(`return (${message.fn})()`);
+        const result = await fn();
 
         parentPort?.postMessage({
           id: message.id,
