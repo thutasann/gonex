@@ -1,4 +1,5 @@
 import os from 'os';
+import { join } from 'path';
 import { Worker } from 'worker_threads';
 import { LoadBalancer } from './load-balancer';
 
@@ -126,52 +127,9 @@ export class WorkerThreadManager {
    * @param workerId - Unique worker ID
    */
   private async createWorker(workerId: number): Promise<void> {
-    const worker = new Worker(
-      `
-            const { parentPort, workerData } = require('worker_threads');
-            
-            // Worker thread implementation
-            parentPort.on('message', async (message) => {
-              try {
-                switch (message.type) {
-                  case 'execute':
-                    const fn = eval('(' + message.fn + ')');
-                    const result = await fn();
-                    parentPort.postMessage({
-                      id: message.id,
-                      success: true,
-                      result,
-                      workerId: workerData.workerId
-                    });
-                    break;
-                    
-                  case 'heartbeat':
-                    parentPort.postMessage({
-                      id: message.id,
-                      success: true,
-                      workerId: workerData.workerId
-                    });
-                    break;
-                    
-                  case 'shutdown':
-                    process.exit(0);
-                    break;
-                }
-              } catch (error) {
-                parentPort.postMessage({
-                  id: message.id,
-                  success: false,
-                  error: error.message,
-                  workerId: workerData.workerId
-                });
-              }
-            });
-          `,
-      {
-        eval: true,
-        workerData: { workerId },
-      }
-    );
+    const worker = new Worker(join(__dirname, './worker.js'), {
+      workerData: { workerId },
+    });
 
     // Set up message handling
     worker.on('message', this.handleWorkerMessage.bind(this));
@@ -226,14 +184,39 @@ export class WorkerThreadManager {
         timeout: timeoutId,
       });
 
+      // Serialize the function properly
+      const serializedFn = this.serializeFunction(fn);
+
       // Send message to worker
       worker.postMessage({
         id: messageId,
         type: 'execute',
-        fn: fn.toString(),
+        fn: serializedFn,
         timeout: operationTimeout,
       });
     });
+  }
+
+  /**
+   * Serialize a function for worker thread execution
+   *
+   * @param fn - Function to serialize
+   * @returns Serialized function string
+   */
+  private serializeFunction(fn: (...args: AnyValue[]) => AnyValue): string {
+    const fnString = fn.toString();
+
+    // Handle different function formats
+    if (fnString.startsWith('function')) {
+      // Named or anonymous function
+      return fnString;
+    } else if (fnString.startsWith('(') || fnString.startsWith('async')) {
+      // Arrow function or async arrow function
+      return fnString;
+    } else {
+      // Fallback for other function types
+      return `function() { return (${fnString})(); }`;
+    }
   }
 
   /**
