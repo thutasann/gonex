@@ -156,6 +156,12 @@ export class ParallelScheduler {
     fns: Array<() => T | Promise<T>>,
     options: ParallelOptions = {}
   ): Promise<T[]> {
+    logger.info('[goAll]', {
+      useWorkerThreads: options.useWorkerThreads,
+      workerThreadManager: this.workerThreadManager
+        ? 'workerThreadManager initialized'
+        : 'workerThreadManager not initialized',
+    });
     const promises = fns.map(fn => this.go(fn, options));
     return Promise.all(promises);
   }
