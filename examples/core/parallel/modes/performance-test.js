@@ -20,6 +20,10 @@ console.log('\n2. Optimized Worker Threads:');
 await initializeParallelScheduler({
   useWorkerThreads: true,
   threadCount: 4,
+  cpuAffinity: true,
+  loadBalancing: 'least-busy',
+  sharedMemory: true,
+  timeout: 30000,
 });
 
 const workerStart = Date.now();
@@ -32,14 +36,10 @@ console.log(`   Time: ${workerTime}ms`);
 
 await shutdownParallelScheduler();
 
-// Results
-console.log('\n=== Results ===');
-console.log(`Native: ${nativeTime}ms`);
-console.log(`Worker: ${workerTime}ms`);
-console.log(`Difference: ${workerTime - nativeTime}ms`);
-console.log(
-  `Performance: ${workerTime < nativeTime ? '✅ FASTER' : '❌ SLOWER'}`
-);
-console.log(
-  `Speedup: ${((nativeTime / workerTime) * 100).toFixed(1)}% of native speed`
-);
+console.table({
+  'Native Execution': nativeTime,
+  'Optimized Worker Threads': workerTime,
+  Difference: workerTime - nativeTime,
+  Performance: workerTime < nativeTime ? '✅ FASTER' : '❌ SLOWER',
+  Speedup: ((nativeTime / workerTime) * 100).toFixed(1) + '% of native speed',
+});
