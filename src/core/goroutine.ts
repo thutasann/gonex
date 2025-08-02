@@ -56,6 +56,9 @@ export type GoroutineOptions = {
   /** Use worker threads for true parallelism */
   useWorkerThreads?: boolean;
 
+  /** Arguments to pass to the function (for worker threads) */
+  args?: AnyValue[];
+
   /** Parallel execution options */
   parallel?: ParallelOptions;
 };
@@ -152,6 +155,11 @@ export async function go<T>(
     // Only add timeout if it's defined
     if (timeout !== undefined) {
       parallelOptions.timeout = timeout;
+    }
+
+    // Add args if provided
+    if (options.args) {
+      parallelOptions.args = options.args;
     }
 
     try {

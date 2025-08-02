@@ -43,6 +43,7 @@ export type WorkerMessage = {
   id: string;
   type: 'execute' | 'heartbeat' | 'shutdown';
   fn?: string;
+  args?: AnyValue[];
   data?: AnyValue;
   timeout?: number;
 };
@@ -147,9 +148,14 @@ export class WorkerThreadManager {
    *
    * @param fn - Function to execute
    * @param timeout - Optional timeout in milliseconds
+   * @param args - Optional arguments to pass to the function
    * @returns Promise that resolves with the function result
    */
-  async execute<T>(fn: () => T | Promise<T>, timeout?: number): Promise<T> {
+  async execute<T>(
+    fn: () => T | Promise<T>,
+    timeout?: number,
+    args?: AnyValue[]
+  ): Promise<T> {
     if (this.workers.length === 0) {
       throw new Error('No worker threads available');
     }
@@ -188,6 +194,7 @@ export class WorkerThreadManager {
         id: messageId,
         type: 'execute',
         fn: serializedFn,
+        args: args || [],
         timeout: operationTimeout,
       });
     });
@@ -200,8 +207,26 @@ export class WorkerThreadManager {
    * @returns Serialized function string
    */
   private serializeFunction(fn: (...args: AnyValue[]) => AnyValue): string {
-    // Just return the function as-is for maximum speed
-    return fn.toString();
+    const fnString = fn.toString();
+
+    // Extract the function body more robustly
+    // Handle patterns like: async (/** @type {any} */ data) => { ... }
+    const bodyMatch = fnString.match(/=>\s*\{([\s\S]*)\}$/);
+
+    if (bodyMatch && bodyMatch[1]) {
+      const functionBody = bodyMatch[1].trim();
+
+      // Create a simple async function that takes a single parameter
+      // This avoids complex parameter parsing issues
+      const result = `async function(data) {
+        ${functionBody}
+      }`;
+
+      return result;
+    }
+
+    // Fallback to original function if parsing fails
+    return fnString;
   }
 
   /**

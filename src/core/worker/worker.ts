@@ -6,9 +6,13 @@ parentPort?.on('message', async (message: AnyValue) => {
   try {
     switch (message.type) {
       case 'execute':
-        // Direct function execution for maximum speed
-        const fn = new Function(`return (${message.fn})()`);
-        const result = await fn();
+        // Get the first argument
+        const firstArg =
+          message.args && message.args.length > 0 ? message.args[0] : undefined;
+
+        // Execute the function using Function constructor with parameter
+        const fn = new Function('data', `return (${message.fn})(data)`);
+        const result = await fn(firstArg);
 
         parentPort?.postMessage({
           id: message.id,
