@@ -1,5 +1,5 @@
 // @ts-check
-import { go, semaphore, sleep } from 'gonex';
+import { go, semaphore, sleep } from '../../dist/index.js';
 
 console.log('=== Semaphore Example ===\n');
 

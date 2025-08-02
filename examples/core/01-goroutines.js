@@ -1,5 +1,5 @@
 // @ts-check
-import { go, sleep } from 'gonex';
+import { go, sleep } from '../../dist/index.js';
 
 console.log('=== Goroutines Example ===\n');
 
