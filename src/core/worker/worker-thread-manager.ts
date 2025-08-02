@@ -150,6 +150,7 @@ export class WorkerThreadManager {
    * @param fn - Function to execute
    * @param timeout - Optional timeout in milliseconds
    * @param args - Optional arguments to pass to the function
+   * @param dependencies - Optional function dependencies
    * @returns Promise that resolves with the function result
    */
   async execute<T>(
@@ -188,18 +189,9 @@ export class WorkerThreadManager {
         timeout: timeoutId,
       });
 
-      // Serialize the function and extract dependencies
-      const { serializedFn, autoDependencies } =
-        this.serializeFunctionWithDependencies(fn);
-
-      // Combine auto-detected dependencies with explicitly provided ones
-      const allDependencies: Record<string, string> = { ...autoDependencies };
-
-      if (dependencies) {
-        for (const [name, func] of Object.entries(dependencies)) {
-          allDependencies[name] = func.toString();
-        }
-      }
+      // Process functions and their dependencies
+      const { serializedFn, allDependencies } =
+        this.processFunctionWithDependencies(fn, dependencies);
 
       // Send message to worker
       worker.postMessage({
@@ -211,6 +203,172 @@ export class WorkerThreadManager {
         timeout: operationTimeout,
       });
     });
+  }
+
+  /**
+   * Process a function and its dependencies, handling compiled imports
+   *
+   * @param fn - Function to process
+   * @param explicitDependencies - Explicitly provided dependencies
+   * @returns Object containing serialized function and all dependencies
+   */
+  private processFunctionWithDependencies(
+    fn: (...args: AnyValue[]) => AnyValue,
+    explicitDependencies?: Record<string, (...args: AnyValue[]) => AnyValue>
+  ): {
+    serializedFn: string;
+    allDependencies: Record<string, string>;
+  } {
+    const allDependencies: Record<string, string> = {};
+
+    // Process explicit dependencies first
+    if (explicitDependencies) {
+      for (const [name, func] of Object.entries(explicitDependencies)) {
+        const { processedFn, additionalDeps } = this.processCompiledImports(
+          func.toString()
+        );
+        allDependencies[name] = processedFn;
+        Object.assign(allDependencies, additionalDeps);
+      }
+    }
+
+    // Process the main function
+    const { serializedFn, autoDependencies } =
+      this.serializeFunctionWithDependencies(fn);
+    Object.assign(allDependencies, autoDependencies);
+
+    return {
+      serializedFn,
+      allDependencies,
+    };
+  }
+
+  /**
+   * Process a function string to handle compiled import references
+   *
+   * @param fnString - Function string to process
+   * @returns Object containing processed function and additional dependencies
+   */
+  private processCompiledImports(fnString: string): {
+    processedFn: string;
+    additionalDeps: Record<string, string>;
+  } {
+    const additionalDeps: Record<string, string> = {};
+    let processedFn = fnString;
+
+    // Find all compiled import references like (0, module_1.functionName)
+    const compiledImportPattern = /\(0,\s*(\w+_\d+)\.(\w+)\)/g;
+    const matches = [...processedFn.matchAll(compiledImportPattern)];
+
+    for (const match of matches) {
+      const moduleName = match[1];
+      const functionName = match[2];
+
+      if (moduleName && functionName) {
+        // Try to get the actual function from the global scope
+        const actualFunction = this.extractFunctionFromGlobalScope(
+          moduleName,
+          functionName
+        );
+
+        if (actualFunction) {
+          // Replace the compiled import with the function name
+          processedFn = processedFn.replace(match[0], functionName);
+          additionalDeps[functionName] = actualFunction;
+        } else {
+          // If we can't find the function, create a fallback implementation
+          const fallbackFunction = this.createFallbackFunction(functionName);
+          if (fallbackFunction) {
+            processedFn = processedFn.replace(match[0], functionName);
+            additionalDeps[functionName] = fallbackFunction;
+          }
+        }
+      }
+    }
+
+    return {
+      processedFn,
+      additionalDeps,
+    };
+  }
+
+  /**
+   * Extract a function from the global scope by trying to resolve the compiled module reference
+   *
+   * @param moduleName - The compiled module name (e.g., utils_1)
+   * @param functionName - The function name (e.g., validateDuration)
+   * @returns Function string or null if not found
+   */
+  private extractFunctionFromGlobalScope(
+    moduleName: string,
+    functionName: string
+  ): string | null {
+    try {
+      // Try to get the module from global scope
+      const globalScope = globalThis as AnyValue;
+
+      // First, try to get the module directly
+      if (globalScope[moduleName] && globalScope[moduleName][functionName]) {
+        return globalScope[moduleName][functionName].toString();
+      }
+
+      // If that doesn't work, try to find the function in the global scope
+      if (globalScope[functionName]) {
+        return globalScope[functionName].toString();
+      }
+
+      // Try to find the module by looking for patterns like utils_1, index_1, etc.
+      const modulePattern = new RegExp(
+        `^${moduleName.replace(/\d+$/, '')}\\d*$`
+      );
+      for (const key in globalScope) {
+        if (
+          modulePattern.test(key) &&
+          globalScope[key] &&
+          globalScope[key][functionName]
+        ) {
+          return globalScope[key][functionName].toString();
+        }
+      }
+
+      return null;
+    } catch (error) {
+      // If we can't extract the function, return null
+      return null;
+    }
+  }
+
+  /**
+   * Create a fallback function implementation for common utility functions
+   *
+   * @param functionName - The function name
+   * @returns Fallback function string or null if not supported
+   */
+  private createFallbackFunction(functionName: string): string | null {
+    // Common utility functions that we can provide fallback implementations for
+    const fallbackFunctions: Record<string, string> = {
+      validateDuration: `function validateDuration(duration, name) {
+        if (typeof duration !== 'number' || duration < 0 || !isFinite(duration)) {
+          throw new Error(\`Invalid \${name}: must be a non-negative finite number\`);
+        }
+      }`,
+      validateTimeout: `function validateTimeout(timeout, name) {
+        if (typeof timeout !== 'number' || timeout < 0 || !isFinite(timeout)) {
+          throw new Error(\`Invalid \${name}: must be a non-negative finite number\`);
+        }
+      }`,
+      sleep: `function sleep(duration) {
+        if (typeof duration !== 'number' || duration < 0 || !isFinite(duration)) {
+          throw new Error('Invalid sleep duration: must be a non-negative finite number');
+        }
+        return new Promise(resolve => {
+          setTimeout(resolve, duration);
+        });
+      }`,
+      // Add more fallback functions as needed
+    };
+
+    return fallbackFunctions[functionName] || null;
   }
 
   /**

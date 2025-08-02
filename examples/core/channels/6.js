@@ -72,7 +72,7 @@ go(async () => {
 
       // Use worker thread for CPU-intensive work with task data passed as parameter
       const result = await go(
-        async data => {
+        async (/** @type {any} */ data) => {
           return await heavyTask(data);
         },
         {
@@ -122,7 +122,7 @@ go(async () => {
 
       // Use worker thread for CPU-intensive work with task data passed as parameter
       const result = await go(
-        async data => {
+        async (/** @type {any} */ data) => {
           return await heavyTask(data);
         },
         {
