@@ -2,6 +2,7 @@ import os from 'os';
 import { join } from 'path';
 import { Worker } from 'worker_threads';
 import { log } from '../../utils';
+import { logger } from '../../utils/logger';
 import { LoadBalancer } from './load-balancer';
 
 /**
@@ -112,8 +113,6 @@ export class WorkerThreadManager {
       throw new Error('WorkerThreadManager is shutting down');
     }
 
-    log.worker(`Starting ${numWorkers} worker threads`);
-
     for (let i = 0; i < numWorkers; i++) {
       await this.createWorker(i);
     }
@@ -146,8 +145,6 @@ export class WorkerThreadManager {
       load: 0,
       memoryUsage: 0,
     });
-
-    log.worker(`Worker ${workerId} created successfully`);
   }
 
   /**
@@ -161,6 +158,9 @@ export class WorkerThreadManager {
     if (this.workers.length === 0) {
       throw new Error('No worker threads available');
     }
+
+    // Set logger to worker thread mode
+    logger.setExecutionMode('worker-thread');
 
     // Validate function for worker execution
     if (!this.isFunctionSafeForWorker(fn)) {
@@ -394,9 +394,8 @@ export class WorkerThreadManager {
    */
   async shutdown(): Promise<void> {
     this.isShuttingDown = true;
-    log.worker('Shutting down worker threads');
 
-    const shutdownPromises = this.workers.map((worker, index) => {
+    const shutdownPromises = this.workers.map(worker => {
       return new Promise<void>(resolve => {
         worker.postMessage({
           id: this.generateMessageId(),
@@ -404,7 +403,6 @@ export class WorkerThreadManager {
         });
 
         worker.on('exit', () => {
-          log.worker(`Worker ${index} shutdown complete`);
           resolve();
         });
 

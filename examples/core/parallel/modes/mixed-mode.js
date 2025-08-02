@@ -1,14 +1,14 @@
+// @ts-check
+/**
+ * - Lightweight tasks use event loop
+ * - Heavy tasks use worker threads
+ * - Best of both worlds
+ */
 import {
   go,
   initializeParallelScheduler,
   shutdownParallelScheduler,
 } from '../../../../dist/index.js';
-
-// Example 4: Mixed Execution Modes
-console.log('4. Mixed Execution Modes:');
-console.log('   - Lightweight tasks use event loop');
-console.log('   - Heavy tasks use worker threads');
-console.log('   - Best of both worlds\n');
 
 await initializeParallelScheduler({
   useWorkerThreads: true,
