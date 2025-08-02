@@ -20,6 +20,10 @@ console.log('\n2. Optimized Worker Threads:');
 await initializeParallelScheduler({
   useWorkerThreads: true,
   threadCount: 4,
+  cpuAffinity: true,
+  loadBalancing: 'least-busy',
+  sharedMemory: true,
+  timeout: 30000,
 });
 
 const workerStart = Date.now();
