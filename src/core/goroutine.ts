@@ -272,6 +272,11 @@ export async function goAll<T>(
       parallelOptions.timeout = options.timeout;
     }
 
+    // Add dependencies if provided
+    if (options.dependencies) {
+      parallelOptions.dependencies = options.dependencies;
+    }
+
     return globalParallelScheduler.goAll(fns, parallelOptions);
   }
 
@@ -324,6 +329,11 @@ export async function goRace<T>(
     // Only add timeout if it's defined
     if (options.timeout !== undefined) {
       parallelOptions.timeout = options.timeout;
+    }
+
+    // Add dependencies if provided
+    if (options.dependencies) {
+      parallelOptions.dependencies = options.dependencies;
     }
 
     return globalParallelScheduler.goRace(fns, parallelOptions);

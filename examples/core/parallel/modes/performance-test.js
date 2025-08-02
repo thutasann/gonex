@@ -3,6 +3,7 @@ import {
   goAll,
   initializeParallelScheduler,
   shutdownParallelScheduler,
+  sleep,
 } from '../../../../dist/index.js';
 import heavyWorkerThreadTasks from '../../../utils/heavy_worker_thread_tasks.js';
 
@@ -23,13 +24,16 @@ await initializeParallelScheduler({
   cpuAffinity: true,
   loadBalancing: 'least-busy',
   sharedMemory: true,
-  timeout: 30000,
+  timeout: 120000, // Increased timeout to 2 minutes
 });
 
 const workerStart = Date.now();
 await goAll(heavyWorkerThreadTasks, {
   useWorkerThreads: true,
   parallel: { threadCount: 4 },
+  dependencies: {
+    sleep: sleep,
+  },
 });
 const workerTime = Date.now() - workerStart;
 console.log(`   Time: ${workerTime}ms`);
