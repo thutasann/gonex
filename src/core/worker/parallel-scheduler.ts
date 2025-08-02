@@ -1,5 +1,5 @@
 import os from 'os';
-import { DEFAULT_TIMEOUT, validateTimeout } from '../../utils';
+import { DEFAULT_TIMEOUT, log, validateTimeout } from '../../utils';
 import { LoadBalancingStrategy } from './load-balancer';
 import { WorkerThreadManager } from './worker-thread-manager';
 
@@ -79,9 +79,9 @@ export class ParallelScheduler {
       });
 
       await this.workerThreadManager.start(threadCount);
-      console.log(
-        `Parallel scheduler initialized with ${threadCount} worker threads`
-      );
+      log.parallel(`Initialized with ${threadCount} worker threads`, {
+        threadCount,
+      });
     }
 
     this.isInitialized = true;
@@ -107,10 +107,16 @@ export class ParallelScheduler {
 
     // Use worker threads if enabled
     if (config.useWorkerThreads && this.workerThreadManager) {
+      log.parallel('Executing function on worker thread', {
+        timeout: config.timeout,
+      });
       return this.workerThreadManager.execute(fn, config.timeout);
     }
 
-    // Fallback to single-threaded execution (current implementation)
+    // Fallback to single-threaded execution
+    log.parallel('Executing function in single-threaded mode', {
+      timeout: config.timeout,
+    });
     return this.executeSingleThreaded(fn);
   }
 

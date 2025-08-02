@@ -1,6 +1,15 @@
 // @ts-check
-import { goAll } from '../../../dist/index.js';
+import { goAll, initializeParallelScheduler } from '../../../dist/index.js';
 import heavy_computations from '../../utils/heavy_computations.js';
+
+await initializeParallelScheduler({
+  useWorkerThreads: true,
+  threadCount: 4,
+  cpuAffinity: true,
+  loadBalancing: 'least-busy',
+  sharedMemory: true,
+  timeout: 30000,
+});
 
 // Example 2: Heavy computation with true parallelism
 console.log('2. Heavy computation with true parallelism:');

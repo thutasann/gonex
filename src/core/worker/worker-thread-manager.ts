@@ -1,6 +1,7 @@
 import os from 'os';
 import { join } from 'path';
 import { Worker } from 'worker_threads';
+import { log } from '../../utils';
 import { LoadBalancer } from './load-balancer';
 
 /**
@@ -111,7 +112,7 @@ export class WorkerThreadManager {
       throw new Error('WorkerThreadManager is shutting down');
     }
 
-    console.log(`Starting ${numWorkers} worker threads...`);
+    log.worker(`Starting ${numWorkers} worker threads`);
 
     for (let i = 0; i < numWorkers; i++) {
       await this.createWorker(i);
@@ -146,7 +147,7 @@ export class WorkerThreadManager {
       memoryUsage: 0,
     });
 
-    console.log(`Worker ${workerId} created successfully`);
+    log.worker(`Worker ${workerId} created successfully`);
   }
 
   /**
@@ -159,6 +160,13 @@ export class WorkerThreadManager {
   async execute<T>(fn: () => T | Promise<T>, timeout?: number): Promise<T> {
     if (this.workers.length === 0) {
       throw new Error('No worker threads available');
+    }
+
+    // Validate function for worker execution
+    if (!this.isFunctionSafeForWorker(fn)) {
+      log.warn('Function may not be safe for worker execution', {
+        functionString: fn.toString().substring(0, 100) + '...',
+      });
     }
 
     const worker = this.loadBalancer.selectWorker(
@@ -206,17 +214,61 @@ export class WorkerThreadManager {
   private serializeFunction(fn: (...args: AnyValue[]) => AnyValue): string {
     const fnString = fn.toString();
 
+    // Extract just the function body, not the wrapper
+    let functionBody = fnString;
+
     // Handle different function formats
     if (fnString.startsWith('function')) {
-      // Named or anonymous function
-      return fnString;
+      // Named or anonymous function: extract body between { }
+      const bodyMatch = fnString.match(/\{([\s\S]*)\}$/);
+      if (bodyMatch && bodyMatch[1]) {
+        functionBody = bodyMatch[1].trim();
+      }
     } else if (fnString.startsWith('(') || fnString.startsWith('async')) {
-      // Arrow function or async arrow function
-      return fnString;
+      // Arrow function: extract body after =>
+      const arrowMatch = fnString.match(/=>\s*(\{[\s\S]*\}|.+)$/);
+      if (arrowMatch && arrowMatch[1]) {
+        functionBody = arrowMatch[1].trim();
+        // If it's not wrapped in {}, wrap it
+        if (!functionBody.startsWith('{')) {
+          functionBody = `{ return ${functionBody}; }`;
+        }
+      }
     } else {
-      // Fallback for other function types
-      return `function() { return (${fnString})(); }`;
+      // Fallback: wrap in function body
+      functionBody = `{ return (${fnString})(); }`;
     }
+
+    return functionBody;
+  }
+
+  /**
+   * Validate that a function is safe for worker thread execution
+   *
+   * @param fn - Function to validate
+   * @returns True if function is safe for worker execution
+   */
+  private isFunctionSafeForWorker(
+    fn: (...args: AnyValue[]) => AnyValue
+  ): boolean {
+    const fnString = fn.toString();
+
+    // Check for common issues that would cause problems in worker threads
+    const problematicPatterns = [
+      /onError/, // References to error handlers
+      /process\./, // Process references (except process.exit which is ok)
+      /global/, // Global references
+      /window/, // Browser references
+      /document/, // DOM references
+    ];
+
+    for (const pattern of problematicPatterns) {
+      if (pattern.test(fnString)) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   /**
@@ -258,7 +310,7 @@ export class WorkerThreadManager {
    * @param error - Error from worker
    */
   private handleWorkerError(error: Error): void {
-    console.error('Worker error:', error);
+    log.error('Worker error occurred', error);
 
     // Find the worker that had the error
     const workerIndex = this.workers.findIndex(
@@ -297,7 +349,7 @@ export class WorkerThreadManager {
    * @param workerId - ID of worker to restart
    */
   private async restartWorker(workerId: number): Promise<void> {
-    console.log(`Restarting worker ${workerId}...`);
+    log.worker(`Restarting worker ${workerId}`);
 
     // Remove old worker
     const oldWorker = this.workers[workerId];
@@ -307,7 +359,7 @@ export class WorkerThreadManager {
 
     // Create new worker
     await this.createWorker(workerId);
-    console.log(`Worker ${workerId} restarted successfully`);
+    log.worker(`Worker ${workerId} restarted successfully`);
   }
 
   /**
@@ -342,7 +394,7 @@ export class WorkerThreadManager {
    */
   async shutdown(): Promise<void> {
     this.isShuttingDown = true;
-    console.log('Shutting down worker threads...');
+    log.worker('Shutting down worker threads');
 
     const shutdownPromises = this.workers.map((worker, index) => {
       return new Promise<void>(resolve => {
@@ -352,7 +404,7 @@ export class WorkerThreadManager {
         });
 
         worker.on('exit', () => {
-          console.log(`Worker ${index} shutdown complete`);
+          log.worker(`Worker ${index} shutdown complete`);
           resolve();
         });
 
@@ -365,7 +417,7 @@ export class WorkerThreadManager {
     });
 
     await Promise.all(shutdownPromises);
-    console.log('All worker threads shutdown complete');
+    log.worker('All worker threads shutdown complete');
   }
 
   /**

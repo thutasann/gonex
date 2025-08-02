@@ -1,8 +1,10 @@
 import {
   createCancellablePromise,
   createTimeoutPromise,
+  log,
   validateTimeout,
 } from '../utils';
+import { logger } from '../utils/logger';
 import { sleep } from './timing';
 import {
   ParallelOptions,
@@ -111,6 +113,24 @@ export async function go<T>(
     parallel = {},
   } = options;
 
+  // Log execution mode and validate timeout
+  const executionMode =
+    useWorkerThreads && globalParallelScheduler
+      ? 'WORKER-THREAD'
+      : 'EVENT-LOOP';
+
+  // Set the logger execution mode
+  logger.setExecutionMode(
+    useWorkerThreads && globalParallelScheduler ? 'worker-thread' : 'event-loop'
+  );
+
+  log.goroutine.start(name, useWorkerThreads);
+  log.info(`Execution mode: ${executionMode}`, {
+    useWorkerThreads,
+    hasParallelScheduler: !!globalParallelScheduler,
+    name,
+  });
+
   // Validate timeout if provided
   if (timeout !== undefined) {
     validateTimeout(timeout, name);
@@ -131,11 +151,6 @@ export async function go<T>(
       }
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
-
-      if (onError) {
-        onError(err);
-      }
-
       throw err;
     }
   };
@@ -152,7 +167,19 @@ export async function go<T>(
       parallelOptions.timeout = timeout;
     }
 
-    return globalParallelScheduler.go(executeFn, parallelOptions);
+    try {
+      // Send the original function directly, not the wrapped executeFn
+      const result = await globalParallelScheduler.go(fn, parallelOptions);
+      return result;
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+
+      if (onError) {
+        onError(err);
+      }
+
+      throw err;
+    }
   }
 
   // Fallback to single-threaded execution
@@ -171,8 +198,29 @@ export async function go<T>(
   // Execute on next tick to ensure non-blocking behavior
   // This prevents blocking the current execution context
   return new Promise((resolve, reject) => {
+    const startTime = Date.now();
+
     setImmediate(() => {
-      promise.then(resolve).catch(reject);
+      promise
+        .then(result => {
+          const duration = Date.now() - startTime;
+          log.goroutine.complete(name, duration, useWorkerThreads);
+          resolve(result);
+        })
+        .catch(error => {
+          const duration = Date.now() - startTime;
+          const err = error instanceof Error ? error : new Error(String(error));
+
+          if (onError) {
+            onError(err);
+          }
+
+          log.error(`Goroutine failed${name ? `: ${name}` : ''}`, err, {
+            duration: `${duration}ms`,
+            useWorkerThreads,
+          });
+          reject(err);
+        });
     });
   });
 }
