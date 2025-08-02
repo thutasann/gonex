@@ -4,6 +4,36 @@ import {
   validateTimeout,
 } from '../utils';
 import { sleep } from './timing';
+import {
+  ParallelOptions,
+  ParallelScheduler,
+} from './worker/parallel-scheduler';
+
+/**
+ * Global parallel scheduler instance
+ */
+let globalParallelScheduler: ParallelScheduler | null = null;
+
+/**
+ * Initialize the global parallel scheduler
+ *
+ * @param options - Parallel scheduler options
+ */
+export async function initializeParallelScheduler(
+  options: ParallelOptions = {}
+): Promise<void> {
+  if (!globalParallelScheduler) {
+    globalParallelScheduler = new ParallelScheduler(options);
+    await globalParallelScheduler.initialize(options);
+  }
+}
+
+/**
+ * Get the global parallel scheduler instance
+ */
+export function getParallelScheduler(): ParallelScheduler | null {
+  return globalParallelScheduler;
+}
 
 /**
  * Options for configuring goroutine behavior
@@ -20,6 +50,12 @@ export type GoroutineOptions = {
 
   /** AbortSignal for cancelling the goroutine execution */
   signal?: AbortSignal;
+
+  /** Use worker threads for true parallelism */
+  useWorkerThreads?: boolean;
+
+  /** Parallel execution options */
+  parallel?: ParallelOptions;
 };
 
 /**
@@ -30,6 +66,7 @@ export type GoroutineOptions = {
  * - Proper error handling and propagation
  * - Support for timeouts and cancellation
  * - Resource cleanup and memory management
+ * - Optional true parallelism using worker threads
  *
  * @param fn - Function to execute asynchronously (can be sync or async)
  * @param options - Optional configuration for the goroutine
@@ -51,13 +88,13 @@ export type GoroutineOptions = {
  *   }
  * );
  *
- * // Goroutine with timeout
+ * // Goroutine with true parallelism using worker threads
  * const result = await go(
- *   async () => {
- *     await sleep(10000); // Long operation
- *     return "Done";
- *   },
- *   { timeout: 5000 }
+ *   () => heavyComputation(),
+ *   {
+ *     useWorkerThreads: true,
+ *     parallel: { threadCount: 4 }
+ *   }
  * );
  * ```
  */
@@ -65,7 +102,14 @@ export async function go<T>(
   fn: () => T | Promise<T>,
   options: GoroutineOptions = {}
 ): Promise<T> {
-  const { name, timeout, onError, signal } = options;
+  const {
+    name,
+    timeout,
+    onError,
+    signal,
+    useWorkerThreads = false,
+    parallel = {},
+  } = options;
 
   // Validate timeout if provided
   if (timeout !== undefined) {
@@ -96,7 +140,22 @@ export async function go<T>(
     }
   };
 
-  // Start with the main execution promise
+  // Use parallel scheduler if worker threads are enabled
+  if (useWorkerThreads && globalParallelScheduler) {
+    const parallelOptions = {
+      useWorkerThreads: true,
+      ...parallel,
+    };
+
+    // Only add timeout if it's defined
+    if (timeout !== undefined) {
+      parallelOptions.timeout = timeout;
+    }
+
+    return globalParallelScheduler.go(executeFn, parallelOptions);
+  }
+
+  // Fallback to single-threaded execution
   let promise = executeFn();
 
   // Add timeout wrapper if specified (and not infinite)
@@ -123,6 +182,7 @@ export async function go<T>(
  *
  * This is similar to Promise.all() but with goroutine semantics.
  * If any goroutine fails, the entire operation fails.
+ * Supports true parallelism using worker threads.
  *
  * @param fns - Array of functions to execute concurrently
  * @param options - Options applied to all goroutines
@@ -136,12 +196,37 @@ export async function go<T>(
  *   () => fetchUser(3)
  * ]);
  * // results = [user1, user2, user3]
+ *
+ * // With true parallelism
+ * const results = await goAll([
+ *   () => heavyComputation1(),
+ *   () => heavyComputation2(),
+ *   () => heavyComputation3()
+ * ], { useWorkerThreads: true });
  * ```
  */
 export async function goAll<T>(
   fns: Array<() => T | Promise<T>>,
   options: GoroutineOptions = {}
 ): Promise<T[]> {
+  const { useWorkerThreads = false, parallel = {} } = options;
+
+  // Use parallel scheduler if worker threads are enabled
+  if (useWorkerThreads && globalParallelScheduler) {
+    const parallelOptions = {
+      useWorkerThreads: true,
+      ...parallel,
+    };
+
+    // Only add timeout if it's defined
+    if (options.timeout !== undefined) {
+      parallelOptions.timeout = options.timeout;
+    }
+
+    return globalParallelScheduler.goAll(fns, parallelOptions);
+  }
+
+  // Fallback to single-threaded execution
   const promises = fns.map(fn => go(fn, options));
   return Promise.all(promises);
 }
@@ -151,6 +236,7 @@ export async function goAll<T>(
  *
  * This is similar to Promise.race() but with goroutine semantics.
  * The first goroutine to complete (success or failure) determines the result.
+ * Supports true parallelism using worker threads.
  *
  * @param fns - Array of functions to execute concurrently
  * @param options - Options applied to all goroutines
@@ -164,12 +250,37 @@ export async function goAll<T>(
  *   () => fetchFromAPI()
  * ]);
  * // Returns the fastest result
+ *
+ * // With true parallelism
+ * const result = await goRace([
+ *   () => searchAlgorithm1(),
+ *   () => searchAlgorithm2(),
+ *   () => searchAlgorithm3()
+ * ], { useWorkerThreads: true });
  * ```
  */
 export async function goRace<T>(
   fns: Array<() => T | Promise<T>>,
   options: GoroutineOptions = {}
 ): Promise<T> {
+  const { useWorkerThreads = false, parallel = {} } = options;
+
+  // Use parallel scheduler if worker threads are enabled
+  if (useWorkerThreads && globalParallelScheduler) {
+    const parallelOptions = {
+      useWorkerThreads: true,
+      ...parallel,
+    };
+
+    // Only add timeout if it's defined
+    if (options.timeout !== undefined) {
+      parallelOptions.timeout = options.timeout;
+    }
+
+    return globalParallelScheduler.goRace(fns, parallelOptions);
+  }
+
+  // Fallback to single-threaded execution
   const promises = fns.map(fn => go(fn, options));
   return Promise.race(promises);
 }
@@ -179,6 +290,7 @@ export async function goRace<T>(
  *
  * This is useful for operations that may fail temporarily (network requests,
  * database connections, etc.) and should be retried with increasing delays.
+ * Supports true parallelism using worker threads.
  *
  * @param fn - Function to execute with retry logic
  * @param maxRetries - Maximum number of retry attempts (default: 3)
@@ -194,6 +306,14 @@ export async function goRace<T>(
  *   1000 // start with 1 second delay
  * );
  * // Will retry with delays: 1s, 2s, 4s, 8s, 16s
+ *
+ * // With true parallelism
+ * const result = await goWithRetry(
+ *   () => heavyComputation(),
+ *   3,
+ *   1000,
+ *   { useWorkerThreads: true }
+ * );
  * ```
  */
 export async function goWithRetry<T>(
@@ -222,4 +342,14 @@ export async function goWithRetry<T>(
   }
 
   throw lastError!;
+}
+
+/**
+ * Shutdown the global parallel scheduler
+ */
+export async function shutdownParallelScheduler(): Promise<void> {
+  if (globalParallelScheduler) {
+    await globalParallelScheduler.shutdown();
+    globalParallelScheduler = null;
+  }
 }
