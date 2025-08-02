@@ -11,6 +11,6 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "gonex": "^1.4.0"
+    "gonex": "^1.5.0"
   }
 }
