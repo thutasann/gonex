@@ -410,7 +410,6 @@ export class WorkerThreadManager {
 
         // Listen for exit event
         const onExit = () => {
-          log.worker(`Worker ${index} exited`);
           resolve();
         };
 
