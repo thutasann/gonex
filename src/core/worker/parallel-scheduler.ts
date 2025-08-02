@@ -22,6 +22,8 @@ export type ParallelOptions = {
   timeout?: number;
   /** Arguments to pass to the function (for worker threads) */
   args?: AnyValue[];
+  /** Function dependencies to pass to worker threads */
+  dependencies?: Record<string, (...args: AnyValue[]) => AnyValue>;
 };
 
 /** available cpus  */
@@ -111,7 +113,12 @@ export class ParallelScheduler {
     // Use worker threads if enabled
     if (config.useWorkerThreads && this.workerThreadManager) {
       logger.setExecutionMode('worker-thread');
-      return this.workerThreadManager.execute(fn, config.timeout, config.args);
+      return this.workerThreadManager.execute(
+        fn,
+        config.timeout,
+        config.args,
+        config.dependencies
+      );
     }
 
     // Fallback to single-threaded execution

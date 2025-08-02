@@ -59,6 +59,9 @@ export type GoroutineOptions = {
   /** Arguments to pass to the function (for worker threads) */
   args?: AnyValue[];
 
+  /** Function dependencies to pass to worker threads */
+  dependencies?: Record<string, (...args: AnyValue[]) => AnyValue>;
+
   /** Parallel execution options */
   parallel?: ParallelOptions;
 };
@@ -160,6 +163,11 @@ export async function go<T>(
     // Add args if provided
     if (options.args) {
       parallelOptions.args = options.args;
+    }
+
+    // Add dependencies if provided
+    if (options.dependencies) {
+      parallelOptions.dependencies = options.dependencies;
     }
 
     try {

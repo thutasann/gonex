@@ -10,6 +10,21 @@ parentPort?.on('message', async (message: AnyValue) => {
         const firstArg =
           message.args && message.args.length > 0 ? message.args[0] : undefined;
 
+        // Set up dependencies if provided
+        if (message.dependencies) {
+          for (const [funcName, funcString] of Object.entries(
+            message.dependencies
+          )) {
+            try {
+              // Create the function in the worker context
+              const func = new Function(`return ${funcString}`)();
+              (globalThis as AnyValue)[funcName] = func;
+            } catch (error) {
+              console.warn(`Failed to create dependency ${funcName}:`, error);
+            }
+          }
+        }
+
         // Execute the function using Function constructor with parameter
         const fn = new Function('data', `return (${message.fn})(data)`);
         const result = await fn(firstArg);

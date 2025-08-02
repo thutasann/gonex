@@ -43,6 +43,7 @@ export type WorkerMessage = {
   id: string;
   type: 'execute' | 'heartbeat' | 'shutdown';
   fn?: string;
+  dependencies?: Record<string, string>;
   args?: AnyValue[];
   data?: AnyValue;
   timeout?: number;
@@ -154,7 +155,8 @@ export class WorkerThreadManager {
   async execute<T>(
     fn: () => T | Promise<T>,
     timeout?: number,
-    args?: AnyValue[]
+    args?: AnyValue[],
+    dependencies?: Record<string, (...args: AnyValue[]) => AnyValue>
   ): Promise<T> {
     if (this.workers.length === 0) {
       throw new Error('No worker threads available');
@@ -186,14 +188,25 @@ export class WorkerThreadManager {
         timeout: timeoutId,
       });
 
-      // Serialize the function properly
-      const serializedFn = this.serializeFunction(fn);
+      // Serialize the function and extract dependencies
+      const { serializedFn, autoDependencies } =
+        this.serializeFunctionWithDependencies(fn);
+
+      // Combine auto-detected dependencies with explicitly provided ones
+      const allDependencies: Record<string, string> = { ...autoDependencies };
+
+      if (dependencies) {
+        for (const [name, func] of Object.entries(dependencies)) {
+          allDependencies[name] = func.toString();
+        }
+      }
 
       // Send message to worker
       worker.postMessage({
         id: messageId,
         type: 'execute',
         fn: serializedFn,
+        dependencies: allDependencies,
         args: args || [],
         timeout: operationTimeout,
       });
@@ -201,13 +214,19 @@ export class WorkerThreadManager {
   }
 
   /**
-   * Serialize a function for worker thread execution - OPTIMIZED
+   * Serialize a function for worker thread execution with dependencies
    *
    * @param fn - Function to serialize
-   * @returns Serialized function string
+   * @returns Object containing serialized function and dependencies
    */
-  private serializeFunction(fn: (...args: AnyValue[]) => AnyValue): string {
+  private serializeFunctionWithDependencies(
+    fn: (...args: AnyValue[]) => AnyValue
+  ): {
+    serializedFn: string;
+    autoDependencies: Record<string, string>;
+  } {
     const fnString = fn.toString();
+    const autoDependencies: Record<string, string> = {};
 
     // Extract the function body more robustly
     // Handle patterns like: async (/** @type {any} */ data) => { ... }
@@ -216,17 +235,106 @@ export class WorkerThreadManager {
     if (bodyMatch && bodyMatch[1]) {
       const functionBody = bodyMatch[1].trim();
 
+      // Look for function calls in the body that might be external dependencies
+      // This is a simple heuristic - we'll look for common patterns
+      const functionCalls = functionBody.match(/\b(\w+)\s*\(/g);
+      if (functionCalls) {
+        for (const call of functionCalls) {
+          const funcName = call.replace(/\s*\($/, '');
+
+          // Skip common built-in functions and variables
+          const skipList = [
+            'console',
+            'setTimeout',
+            'setInterval',
+            'clearTimeout',
+            'clearInterval',
+            'Math',
+            'JSON',
+            'Array',
+            'Object',
+            'String',
+            'Number',
+            'Boolean',
+            'Date',
+            'RegExp',
+            'Error',
+            'Promise',
+            'async',
+            'await',
+            'return',
+            'if',
+            'else',
+            'for',
+            'while',
+            'do',
+            'switch',
+            'case',
+            'default',
+            'try',
+            'catch',
+            'finally',
+            'throw',
+            'new',
+            'typeof',
+            'instanceof',
+            'delete',
+            'void',
+            'in',
+            'of',
+            'yield',
+            'let',
+            'const',
+            'var',
+            'function',
+            'class',
+            'extends',
+            'super',
+            'this',
+            'arguments',
+            'data',
+            'result',
+            'error',
+            'i',
+            'j',
+            'k',
+            'x',
+            'y',
+            'z',
+          ];
+
+          if (!skipList.includes(funcName) && !autoDependencies[funcName]) {
+            // Try to get the function from the current scope first
+            try {
+              // Check if the function is available in the current scope
+              const currentScope = globalThis as AnyValue;
+              if (typeof currentScope[funcName] === 'function') {
+                autoDependencies[funcName] = currentScope[funcName].toString();
+              }
+            } catch {
+              // Function not found in current scope, skip it
+            }
+          }
+        }
+      }
+
       // Create a simple async function that takes a single parameter
       // This avoids complex parameter parsing issues
       const result = `async function(data) {
         ${functionBody}
       }`;
 
-      return result;
+      return {
+        serializedFn: result,
+        autoDependencies,
+      };
     }
 
     // Fallback to original function if parsing fails
-    return fnString;
+    return {
+      serializedFn: fnString,
+      autoDependencies: {},
+    };
   }
 
   /**

@@ -17,8 +17,9 @@ import {
   initializeParallelScheduler,
   shutdownParallelScheduler,
 } from '../../../dist/index.js';
+import heavyTask from '../../utils/heavy_task.js';
 
-// 0. Initialize Parallel Scheduler
+// Initialize Parallel Scheduler
 await initializeParallelScheduler({
   useWorkerThreads: true,
   threadCount: 4,
@@ -27,15 +28,6 @@ await initializeParallelScheduler({
   sharedMemory: true,
   timeout: 60000, // Increased timeout to 60 seconds
 });
-
-// Self-contained function that receives task data as parameter
-const heavyTask = async (/** @type {any} */ data) => {
-  let result = 0;
-  for (let i = 0; i < 5000000; i++) {
-    result += Math.sqrt(i) * Math.pow(i, 0.1);
-  }
-  return { taskId: data.id, result: result.toFixed(2) };
-};
 
 // Multi-Thread Goroutines with Channel Communication:
 const taskChannel = channel({
@@ -79,10 +71,19 @@ go(async () => {
       console.log(`   🔧 Worker 1: Processing task ${task.id}...`);
 
       // Use worker thread for CPU-intensive work with task data passed as parameter
-      const result = await go(heavyTask, {
-        useWorkerThreads: true,
-        args: [task],
-      });
+      const result = await go(
+        async data => {
+          return await heavyTask(data);
+        },
+        {
+          useWorkerThreads: true,
+          args: [task],
+          dependencies: {
+            heavyTask: heavyTask,
+            sleep: sleep,
+          },
+        }
+      );
 
       // Send the result to the result channel
       console.log(`   📤 Worker 1: Sending result for task ${task.id}`);
@@ -120,10 +121,19 @@ go(async () => {
       console.log(`   🔧 Worker 2: Processing task ${task.id}...`);
 
       // Use worker thread for CPU-intensive work with task data passed as parameter
-      const result = await go(heavyTask, {
-        useWorkerThreads: true,
-        args: [task],
-      });
+      const result = await go(
+        async data => {
+          return await heavyTask(data);
+        },
+        {
+          useWorkerThreads: true,
+          args: [task],
+          dependencies: {
+            heavyTask: heavyTask,
+            sleep: sleep,
+          },
+        }
+      );
 
       // Send the result to the result channel
       console.log(`   📤 Worker 2: Sending result for task ${task.id}`);
