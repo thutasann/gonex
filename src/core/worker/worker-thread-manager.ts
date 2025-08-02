@@ -85,6 +85,7 @@ export class WorkerThreadManager {
   private messageHandlers: MesasgeHandlers = new Map();
   private config: WorkerThreadConfig;
   private isShuttingDown = false;
+  private healthMonitoringInterval: NodeJS.Timeout | null = null;
 
   constructor(config: Partial<WorkerThreadConfig> = {}) {
     this.config = {
@@ -366,7 +367,11 @@ export class WorkerThreadManager {
    * Start health monitoring
    */
   private startHealthMonitoring(): void {
-    setInterval(() => {
+    this.healthMonitoringInterval = setInterval(() => {
+      if (this.isShuttingDown) {
+        return; // Don't send heartbeats during shutdown
+      }
+
       this.workers.forEach((worker, index) => {
         const health = this.workerHealth.get(index);
         if (health && health.isAlive) {
@@ -395,26 +400,49 @@ export class WorkerThreadManager {
   async shutdown(): Promise<void> {
     this.isShuttingDown = true;
 
-    const shutdownPromises = this.workers.map(worker => {
+    const shutdownPromises = this.workers.map((worker, index) => {
       return new Promise<void>(resolve => {
+        // Send shutdown message
         worker.postMessage({
           id: this.generateMessageId(),
           type: 'shutdown',
         });
 
-        worker.on('exit', () => {
+        // Listen for exit event
+        const onExit = () => {
+          log.worker(`Worker ${index} exited`);
           resolve();
-        });
+        };
 
-        // Force terminate after 5 seconds
-        setTimeout(() => {
+        worker.on('exit', onExit);
+
+        // Force terminate after 3 seconds if not responding
+        const forceTerminate = setTimeout(() => {
+          log.worker(`Force terminating worker ${index}`);
           worker.terminate();
           resolve();
-        }, 5000);
+        }, 3000);
+
+        // Clear timeout if worker exits normally
+        worker.on('exit', () => {
+          clearTimeout(forceTerminate);
+        });
       });
     });
 
     await Promise.all(shutdownPromises);
+
+    // Clear health monitoring interval
+    if (this.healthMonitoringInterval) {
+      clearInterval(this.healthMonitoringInterval);
+      this.healthMonitoringInterval = null;
+    }
+
+    // Clear all workers array
+    this.workers = [];
+    this.workerHealth.clear();
+    this.messageHandlers.clear();
+
     log.worker('All worker threads shutdown complete');
   }
 

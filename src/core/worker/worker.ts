@@ -43,7 +43,16 @@ parentPort?.on('message', async (message: AnyValue) => {
         break;
 
       case 'shutdown':
-        process.exit(0);
+        // Send confirmation before exiting
+        parentPort?.postMessage({
+          id: message.id,
+          success: true,
+          workerId: workerData.workerId,
+        });
+        // Exit after a small delay to ensure message is sent
+        setTimeout(() => {
+          process.exit(0);
+        }, 100);
         break;
 
       default:

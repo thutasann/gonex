@@ -12,7 +12,7 @@ import {
   initializeParallelScheduler,
   shutdownParallelScheduler,
 } from '../../../../dist/index.js';
-import workerThreadTasks from '../../../utils/worker_thread_tasks.js';
+import heavyWorkerThreadTasks from '../../../utils/heavy_worker_thread_tasks.js';
 
 initializeParallelScheduler({
   useWorkerThreads: true,
@@ -23,7 +23,7 @@ initializeParallelScheduler({
   timeout: 30000,
 }).then(async () => {
   const startTime = Date.now();
-  const workerThreadResults = await goAll(workerThreadTasks, {
+  const workerThreadResults = await goAll(heavyWorkerThreadTasks, {
     useWorkerThreads: true,
     parallel: { threadCount: 4 },
   });
