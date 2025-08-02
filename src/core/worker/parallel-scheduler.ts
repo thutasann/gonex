@@ -1,5 +1,6 @@
 import os from 'os';
 import { DEFAULT_TIMEOUT, log, validateTimeout } from '../../utils';
+import { logger } from '../../utils/logger';
 import { LoadBalancingStrategy } from './load-balancer';
 import { WorkerThreadManager } from './worker-thread-manager';
 
@@ -107,13 +108,13 @@ export class ParallelScheduler {
 
     // Use worker threads if enabled
     if (config.useWorkerThreads && this.workerThreadManager) {
-      log.parallel('Executing function on worker thread', {
-        timeout: config.timeout,
-      });
+      logger.setExecutionMode('worker-thread');
       return this.workerThreadManager.execute(fn, config.timeout);
     }
 
     // Fallback to single-threaded execution
+    logger.setExecutionMode('event-loop');
+
     log.parallel('Executing function in single-threaded mode', {
       timeout: config.timeout,
     });
@@ -155,6 +156,12 @@ export class ParallelScheduler {
     fns: Array<() => T | Promise<T>>,
     options: ParallelOptions = {}
   ): Promise<T[]> {
+    logger.info('[goAll]', {
+      useWorkerThreads: options.useWorkerThreads,
+      workerThreadManager: this.workerThreadManager
+        ? 'workerThreadManager initialized'
+        : 'workerThreadManager not initialized',
+    });
     const promises = fns.map(fn => this.go(fn, options));
     return Promise.all(promises);
   }

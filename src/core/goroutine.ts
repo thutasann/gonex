@@ -113,23 +113,10 @@ export async function go<T>(
     parallel = {},
   } = options;
 
-  // Log execution mode and validate timeout
-  const executionMode =
-    useWorkerThreads && globalParallelScheduler
-      ? 'WORKER-THREAD'
-      : 'EVENT-LOOP';
-
   // Set the logger execution mode
   logger.setExecutionMode(
     useWorkerThreads && globalParallelScheduler ? 'worker-thread' : 'event-loop'
   );
-
-  log.goroutine.start(name, useWorkerThreads);
-  log.info(`Execution mode: ${executionMode}`, {
-    useWorkerThreads,
-    hasParallelScheduler: !!globalParallelScheduler,
-    name,
-  });
 
   // Validate timeout if provided
   if (timeout !== undefined) {
@@ -203,8 +190,6 @@ export async function go<T>(
     setImmediate(() => {
       promise
         .then(result => {
-          const duration = Date.now() - startTime;
-          log.goroutine.complete(name, duration, useWorkerThreads);
           resolve(result);
         })
         .catch(error => {
