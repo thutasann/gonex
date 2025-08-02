@@ -1,4 +1,6 @@
 import { sleep } from '../../dist/index.js';
+import sort_algo_fn from './sort_algo_fn.js';
+import binary_search from './binary_search.js';
 
 /**
  * CPU-intensive task that will run in worker threads
@@ -8,8 +10,9 @@ import { sleep } from '../../dist/index.js';
  */
 async function heavyTask(data) {
   let result = 0;
-  for (let i = 0; i < 1000; i++) {
-    await sleep(2);
+  for (let i = 0; i < 10; i++) {
+    await sleep(10);
+    await Promise.all([sort_algo_fn(), binary_search()]);
     result += Math.sqrt(i) * Math.pow(i, 0.1);
   }
   return { taskId: data.id, result: result.toFixed(2) };
