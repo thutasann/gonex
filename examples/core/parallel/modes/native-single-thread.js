@@ -5,7 +5,7 @@
  * - No initialization required
  */
 import heavyWorkerThreadTasks from '../../../utils/heavy_worker_thread_tasks.js';
-import runHeavyTasksSequentially from '../../../utils/run-heavy-sequentially.js';
+import runHeavyTasksSequentially from '../../../utils/run_heavy_sequentially.js';
 
 const startTime = Date.now();
 

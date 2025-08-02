@@ -1,10 +1,7 @@
 // @ts-check
-import { channel, go, sleep, select } from '../../dist/index.js';
-
-console.log('=== Select Example ===\n');
+import { channel, go, sleep, select } from '../../../dist/index.js';
 
 // Example 1: Basic select with multiple channels
-console.log('1. Basic select with multiple channels:');
 const ch1 = channel();
 const ch2 = channel();
 

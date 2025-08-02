@@ -9,7 +9,9 @@ import {
   sleep,
 } from '../../dist/index.js';
 
-console.log('=== Combined Example: Web Server Simulator ===\n');
+console.log(
+  '=== Combined Example: Web Server Simulator with True Parallelism ===\n'
+);
 
 // Simulate a web server with connection pooling, rate limiting, and shared state
 class WebServerSimulator {
@@ -30,6 +32,16 @@ class WebServerSimulator {
       await sleep(200);
       console.log('   ✅ Server initialized!');
     });
+  }
+
+  // CPU-intensive task that will run in worker threads
+  async processRequestData(requestId) {
+    // Simulate heavy computation
+    let result = 0;
+    for (let i = 0; i < 10000000; i++) {
+      result += Math.sqrt(i) * Math.pow(i, 0.1);
+    }
+    return { requestId, result: result.toFixed(2) };
   }
 
   async handleRequest(requestId) {
@@ -56,11 +68,13 @@ class WebServerSimulator {
       const state = { ...this.sharedState };
       this.stateMutex.unlock();
 
-      // Simulate request processing
-      await sleep(100 + Math.random() * 200);
+      // Process request data using worker threads for CPU-intensive work
+      const processedData = await go(() => this.processRequestData(requestId), {
+        useWorkerThreads: true,
+      });
 
       console.log(
-        `   📤 Request ${requestId} completed (State: ${JSON.stringify(state)})`
+        `   📤 Request ${requestId} completed (State: ${JSON.stringify(state)}, Data: ${processedData.result})`
       );
     } finally {
       this.activeRequests--;
@@ -97,17 +111,31 @@ class WebServerSimulator {
   }
 }
 
-// Example 1: Web Server Simulation
-console.log('1. Web Server Simulation:');
+// Example 1: Web Server Simulation with Worker Threads
+console.log('1. Web Server Simulation (with Worker Threads):');
 const server = new WebServerSimulator();
 server.start();
 
-// Example 2: Producer-Consumer Pattern
-console.log('\n2. Producer-Consumer Pattern:');
+// Example 2: Producer-Consumer Pattern with Parallel Processing
+console.log('\n2. Producer-Consumer Pattern (with Parallel Processing):');
 const taskQueue = channel({ bufferSize: 5 });
 const resultQueue = channel({ bufferSize: 5 });
 const producerWg = waitGroup();
 const consumerWg = waitGroup();
+
+// CPU-intensive task processor
+async function processTaskIntensively(task) {
+  // Simulate heavy computation
+  let result = 0;
+  for (let i = 0; i < 5000000; i++) {
+    result += Math.pow(i, 0.5) * Math.sin(i * 0.01);
+  }
+  return {
+    ...task,
+    processed: true,
+    computationResult: result.toFixed(2),
+  };
+}
 
 // Producers
 for (let i = 1; i <= 3; i++) {
@@ -123,7 +151,7 @@ for (let i = 1; i <= 3; i++) {
   });
 }
 
-// Consumers
+// Consumers with worker thread processing
 for (let i = 1; i <= 2; i++) {
   consumerWg.add(1);
   go(async () => {
@@ -136,10 +164,16 @@ for (let i = 1; i <= 2; i++) {
           break;
         }
         console.log(`   📥 Consumer ${i} processing: ${task.id}`);
-        await sleep(150);
-        const result = { ...task, processed: true, consumer: i };
-        await resultQueue.send(result);
-        console.log(`   ✅ Consumer ${i} completed: ${task.id}`);
+
+        // Process task using worker thread for CPU-intensive work
+        const result = await go(() => processTaskIntensively(task), {
+          useWorkerThreads: true,
+        });
+
+        await resultQueue.send({ ...result, consumer: i });
+        console.log(
+          `   ✅ Consumer ${i} completed: ${task.id} (Result: ${result.computationResult})`
+        );
       } catch (error) {
         console.log(`   🔚 Consumer ${i} finished: ${error.message}`);
         break;
@@ -175,11 +209,26 @@ go(async () => {
   }
 });
 
-// Example 3: Resource Management with Semaphore and Mutex
-console.log('\n3. Resource Management:');
+// Example 3: Resource Management with Parallel Data Processing
+console.log('\n3. Resource Management (with Parallel Processing):');
 const databasePool = semaphore({ permits: 3 });
 const cacheMutex = mutex();
 const cache = new Map();
+
+// CPU-intensive data processing function
+async function processUserData(userId) {
+  // Simulate heavy data processing
+  let processedData = 0;
+  for (let i = 0; i < 3000000; i++) {
+    processedData += Math.log(i + 1) * Math.cos(i * 0.1);
+  }
+  return {
+    userId,
+    profile: `processed-profile-${userId}`,
+    analytics: processedData.toFixed(2),
+    timestamp: Date.now(),
+  };
+}
 
 async function getCachedData(key) {
   // Try cache first
@@ -209,13 +258,17 @@ async function getCachedData(key) {
 
     console.log(`   🗄️  Database query for: ${key}`);
     await sleep(200);
-    const data = `data-for-${key}`;
+
+    // Process data using worker thread for CPU-intensive work
+    const data = await go(() => processUserData(key), {
+      useWorkerThreads: true,
+    });
 
     // Update cache
     await cacheMutex.lock();
     try {
       cache.set(key, data);
-      console.log(`   💾 Cached: ${key}`);
+      console.log(`   💾 Cached: ${key} (Analytics: ${data.analytics})`);
     } finally {
       cacheMutex.unlock();
     }
@@ -229,9 +282,59 @@ async function getCachedData(key) {
 // Simulate multiple requests for the same data
 for (let i = 1; i <= 5; i++) {
   go(async () => {
-    const data = await getCachedData('user-profile');
-    console.log(`   📄 Request ${i} got: ${data}`);
+    const data = await getCachedData(`user-${i}`);
+    console.log(
+      `   📄 Request ${i} got: ${data.profile} (Analytics: ${data.analytics})`
+    );
   });
 }
+
+// Example 4: Parallel Batch Processing
+console.log('\n4. Parallel Batch Processing:');
+const batchWg = waitGroup();
+
+// CPU-intensive batch processing function
+async function processBatch(batchId, items) {
+  let totalResult = 0;
+  for (let i = 0; i < items.length; i++) {
+    // Simulate processing each item
+    for (let j = 0; j < 1000000; j++) {
+      totalResult += Math.pow(j, 0.3) * Math.exp(-j * 0.0001);
+    }
+  }
+  return {
+    batchId,
+    itemCount: items.length,
+    result: totalResult.toFixed(2),
+  };
+}
+
+// Process multiple batches in parallel using worker threads
+const batches = [
+  { id: 1, items: ['A', 'B', 'C'] },
+  { id: 2, items: ['D', 'E', 'F', 'G'] },
+  { id: 3, items: ['H', 'I'] },
+  { id: 4, items: ['J', 'K', 'L', 'M', 'N'] },
+];
+
+for (const batch of batches) {
+  batchWg.add(1);
+  go(async () => {
+    console.log(
+      `   🔄 Starting batch ${batch.id} with ${batch.items.length} items`
+    );
+
+    // Process batch using worker thread
+    const result = await go(() => processBatch(batch.id, batch.items), {
+      useWorkerThreads: true,
+    });
+
+    console.log(`   ✅ Batch ${batch.id} completed: ${result.result}`);
+    batchWg.done();
+  });
+}
+
+await batchWg.wait();
+console.log('   🎉 All batches processed in parallel!');
 
 console.log('\nAll combined examples started. Waiting for completion...\n');
