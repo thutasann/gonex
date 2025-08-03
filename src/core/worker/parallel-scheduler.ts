@@ -20,6 +20,10 @@ export type ParallelOptions = {
   sharedMemory?: boolean;
   /** Timeout for worker execution */
   timeout?: number;
+  /** Arguments to pass to the function (for worker threads) */
+  args?: AnyValue[];
+  /** Function dependencies to pass to worker threads */
+  dependencies?: Record<string, (...args: AnyValue[]) => AnyValue>;
 };
 
 /** available cpus  */
@@ -97,7 +101,7 @@ export class ParallelScheduler {
    */
   async go<T>(
     fn: () => T | Promise<T>,
-    options: ParallelOptions = {}
+    options: ParallelOptions & { args?: AnyValue[] } = {}
   ): Promise<T> {
     const config = { ...this.defaultOptions, ...options };
 
@@ -109,7 +113,12 @@ export class ParallelScheduler {
     // Use worker threads if enabled
     if (config.useWorkerThreads && this.workerThreadManager) {
       logger.setExecutionMode('worker-thread');
-      return this.workerThreadManager.execute(fn, config.timeout);
+      return this.workerThreadManager.execute(
+        fn,
+        config.timeout,
+        config.args,
+        config.dependencies
+      );
     }
 
     // Fallback to single-threaded execution

@@ -23,7 +23,7 @@ await initializeParallelScheduler({
   cpuAffinity: true,
   loadBalancing: 'least-busy',
   sharedMemory: true,
-  timeout: 30000,
+  timeout: 120000, // Increased timeout to 2 minutes
 });
 
 const workerStart = Date.now();
