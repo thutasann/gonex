@@ -1,10 +1,7 @@
-import { sleep } from '../../dist/index.js';
-
 const heavyWorkerThreadTasks = [
-  async () => {
+  () => {
     let result = 0;
     for (let i = 0; i < 10000000; i++) {
-      await sleep(0.1);
       result += Math.sqrt(i) * Math.sin(i) * Math.cos(i) * Math.tan(i);
     }
     return { task: 1, result: result.toFixed(2) };
