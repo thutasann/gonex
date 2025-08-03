@@ -123,10 +123,6 @@ export class ParallelScheduler {
 
     // Fallback to single-threaded execution
     logger.setExecutionMode('event-loop');
-
-    log.parallel('Executing function in single-threaded mode', {
-      timeout: config.timeout,
-    });
     return this.executeSingleThreaded(fn);
   }
 

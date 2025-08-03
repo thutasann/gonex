@@ -41,7 +41,7 @@ pids/
 .env.production.local
 
 # Benchmarks
-benchmark-results/
+benchmarks/results/
 
 # Temporary files
 tmp/
