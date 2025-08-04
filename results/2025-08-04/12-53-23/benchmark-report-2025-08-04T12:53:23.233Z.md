@@ -1,7 +1,7 @@
 # Gonex Benchmark Results
 
-**Generated:** 2025-08-04T12:52:39.316Z
-**Timestamp:** 2025-08-04T12:52:39.314Z
+**Generated:** 2025-08-04T12:53:23.236Z
+**Timestamp:** 2025-08-04T12:53:23.233Z
 
 ## Overview
 
@@ -13,24 +13,24 @@ This report contains comprehensive benchmark results for the Gonex concurrency p
 
 | Benchmark   | Average  | Min      | Max      | Std Dev  |
 | ----------- | -------- | -------- | -------- | -------- |
-| Simple      | 6.71ms   | 2.15ms   | 12.16ms  | 3.49ms   |
-| Async       | 310.25μs | 160.56μs | 860.91μs | 275.42μs |
-| GoRace      | 89.83μs  | 19.75μs  | 339.68μs | 125.13μs |
-| MemoryUsage | 10.92ms  | 5.86ms   | 20.04ms  | 5.27ms   |
+| Simple      | 5.76ms   | 1.27ms   | 11.21ms  | 3.67ms   |
+| Async       | 315.45μs | 173.62μs | 829.66μs | 257.33μs |
+| GoRace      | 93.75μs  | 19.56μs  | 319.38μs | 114.62μs |
+| MemoryUsage | 9.57ms   | 4.29ms   | 19.46ms  | 5.73ms   |
 ### Cpu Intensive Performance Comparison
 
 | Mode | Average | Min | Max | Std Dev |
 |------|---------|-----|-----|---------|
-| Event-Loop | 14.66ms | 14.15ms | 15.15ms | 389.09μs |
-| Worker-Threads | 442.70μs | 228.10μs | 1.08ms | 327.42μs |
+| Event-Loop | 14.65ms | 13.89ms | 15.23ms | 502.37μs |
+| Worker-Threads | 385.55μs | 185.67μs | 910.01μs | 271.74μs |
 
-**Performance Improvement:** +97.0%
+**Performance Improvement:** +97.4%
 
 ### Memory Usage
 
 | Metric | Value |
 |--------|-------|
-| Heap Used | 14.85 MB |
+| Heap Used | 9.89 MB |
 | Heap Total | 19.25 MB |
 | External | NaN undefined |
 
