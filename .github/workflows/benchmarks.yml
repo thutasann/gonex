@@ -109,6 +109,9 @@ jobs:
           # Try to fetch the benchmark-results branch
           git fetch origin benchmark-results:benchmark-results 2>/dev/null || echo "Branch doesn't exist yet"
 
+          # Reset any uncommitted changes
+          git reset --hard HEAD || echo "No changes to reset"
+
           # Create or checkout the branch
           if git show-ref --verify --quiet refs/heads/benchmark-results; then
             git checkout benchmark-results
