@@ -87,23 +87,34 @@ jobs:
 
           # Copy results from CI-generated benchmarks to structured directories
           if [ -d "benchmarks/results" ]; then
+            echo "📁 Found benchmarks/results directory"
+            echo "📂 Contents of benchmarks/results:"
+            ls -la benchmarks/results/
+            echo ""
+            
             # Copy all date folders to history (preserve existing history)
             for date_folder in benchmarks/results/*/; do
               if [ -d "$date_folder" ]; then
                 date_name=$(basename "$date_folder")
+                echo "📅 Processing date folder: $date_name"
                 # Copy each date folder to history
                 cp -r "$date_folder" "github-results/history/"
+                echo "✅ Copied $date_name to history"
               fi
             done
             
             # Copy the most recent results to latest folder
             # Find the most recent date folder
             LATEST_DATE=$(ls -1 benchmarks/results/ | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' | sort -r | head -1)
+            echo "📅 Latest date folder: $LATEST_DATE"
             if [ -n "$LATEST_DATE" ]; then
               # Find the most recent time folder in the latest date
               LATEST_TIME=$(ls -1 benchmarks/results/${LATEST_DATE}/ | grep -E '^[0-9]{2}-[0-9]{2}-[0-9]{2}$' | sort -r | head -1)
+              echo "🕐 Latest time folder: $LATEST_TIME"
               if [ -n "$LATEST_TIME" ]; then
+                echo "📁 Copying latest results to github-results/latest/"
                 cp -r benchmarks/results/${LATEST_DATE}/${LATEST_TIME}/* github-results/latest/
+                echo "✅ Latest results copied"
               fi
             fi
           else
