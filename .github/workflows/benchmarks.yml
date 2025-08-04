@@ -103,12 +103,15 @@ jobs:
           git checkout benchmark-results 2>/dev/null || git checkout -b benchmark-results
 
           # Clear everything except .git
-          find . -mindepth 1 -maxdepth 1 ! -name '.git' ! -name 'benchmarks' -exec rm -rf {} +
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
 
           # Copy only the results folder to root
           if [ -d "benchmarks/results" ]; then
             cp -r benchmarks/results .
             echo "✅ Results folder copied to root"
+          else
+            echo "❌ No results folder found"
+            exit 1
           fi
 
           # Add and commit
