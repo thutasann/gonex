@@ -49,11 +49,32 @@ async function runBenchmarks() {
     results.goroutines = await runGoroutineBenchmarks();
     console.log(chalk.green('✅ Goroutine benchmarks completed\n'));
 
-    // Save results
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    // Save results in date-based folder structure
+    const timestamp = new Date().toISOString();
+    const date = new Date(timestamp);
+    const dateFolder = date.toISOString().split('T')[0]; // YYYY-MM-DD
+    const timeFolder = date
+      .toISOString()
+      .split('T')[1]
+      .split('.')[0]
+      .replace(/:/g, '-'); // HH-MM-SS
+
+    // Create date-based directory structure
+    const dateDir = path.join(resultsDir, dateFolder);
+    const timeDir = path.join(dateDir, timeFolder);
+
+    // Create directories if they don't exist
+    if (!fs.existsSync(dateDir)) {
+      fs.mkdirSync(dateDir, { recursive: true });
+    }
+    if (!fs.existsSync(timeDir)) {
+      fs.mkdirSync(timeDir, { recursive: true });
+    }
+
+    // Save results in date/time folder
     const resultsFile = path.join(
-      resultsDir,
-      `benchmark-results-${timestamp}.json`
+      timeDir,
+      `benchmark-results-${timestamp.replace(/[:.]/g, '-')}.json`
     );
     fs.writeFileSync(resultsFile, JSON.stringify(results, null, 2));
 

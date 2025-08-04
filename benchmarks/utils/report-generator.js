@@ -280,13 +280,53 @@ This report contains comprehensive benchmark results for the Gonex concurrency p
 }
 
 /**
- * Save markdown report to file
+ * Save markdown report to file with date-based organization
  */
 function saveMarkdownReport(markdown, timestamp) {
   const resultsDir = path.join(__dirname, '..', 'results');
-  const reportFile = path.join(resultsDir, `benchmark-report-${timestamp}.md`);
+
+  // Parse timestamp to get date components
+  // Handle different timestamp formats
+  let date;
+  if (timestamp.includes('T')) {
+    // ISO string format
+    date = new Date(timestamp);
+  } else {
+    // Custom format with dashes (e.g., "2025-01-15-14-30-25")
+    const parts = timestamp.split('-');
+    if (parts.length >= 6) {
+      const [year, month, day, hour, minute, second] = parts;
+      date = new Date(`${year}-${month}-${day}T${hour}:${minute}:${second}`);
+    } else {
+      // Fallback to current date
+      date = new Date();
+    }
+  }
+
+  const dateFolder = date.toISOString().split('T')[0]; // YYYY-MM-DD
+  const timeFolder = date
+    .toISOString()
+    .split('T')[1]
+    .split('.')[0]
+    .replace(/:/g, '-'); // HH-MM-SS
+
+  // Create date-based directory structure
+  const dateDir = path.join(resultsDir, dateFolder);
+  const timeDir = path.join(dateDir, timeFolder);
+
+  // Create directories if they don't exist
+  if (!fs.existsSync(dateDir)) {
+    fs.mkdirSync(dateDir, { recursive: true });
+  }
+  if (!fs.existsSync(timeDir)) {
+    fs.mkdirSync(timeDir, { recursive: true });
+  }
+
+  // Save to date/time specific directory only
+  const reportFile = path.join(timeDir, `benchmark-report-${timestamp}.md`);
   fs.writeFileSync(reportFile, markdown);
-  return reportFile;
+
+  return { reportFile, dateFolder, timeFolder, dateDir };
 }
 
 /**
@@ -298,7 +338,13 @@ export async function generateReport(results, timestamp) {
 
   // Generate markdown report
   const markdown = generateMarkdownReport(results, timestamp);
-  const reportFile = saveMarkdownReport(markdown, timestamp);
+  const { reportFile, dateFolder, timeFolder, dateDir } = saveMarkdownReport(
+    markdown,
+    timestamp
+  );
 
   console.log(chalk.green(`📝 Report saved to: ${reportFile}`));
+  console.log(chalk.blue(`📅 Date: ${dateFolder}`));
+  console.log(chalk.blue(`🕐 Time: ${timeFolder}`));
+  console.log(chalk.blue(`📂 Directory: ${dateDir}/${timeFolder}`));
 }

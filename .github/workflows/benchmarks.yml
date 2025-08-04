@@ -56,29 +56,106 @@ jobs:
           echo "📝 Latest Results:"
           if [ -f results/*.md ]; then
             head -n 20 results/*.md | tail -n +1
-          fi
+                      fi
 
       - name: Prepare benchmark results for GitHub
         run: |
-          # Create timestamp for this run
-          TIMESTAMP=$(date -u +"%Y-%m-%d_%H-%M-%S")
+          # Create timestamps for this run
+          DATE_FOLDER=$(date -u +"%Y-%m-%d")
+          TIME_FOLDER=$(date -u +"%H-%M-%S")
+          RUN_ID=$(date -u +"%Y%m%d_%H%M%S")
           COMMIT_SHA="${{ github.sha }}"
           BRANCH_NAME="${{ github.event.inputs.branch || github.ref_name }}"
 
-          # Create results directory structure
+          # Create results directory structure with date-based organization
           mkdir -p github-results
           mkdir -p github-results/latest
-          mkdir -p github-results/history/${TIMESTAMP}
+          mkdir -p github-results/history/${DATE_FOLDER}/${TIME_FOLDER}
 
           # Copy results to structured directories
           if [ -d "benchmarks/results" ]; then
-            # Copy to history folder with timestamp
-            cp -r benchmarks/results/* github-results/history/${TIMESTAMP}/
+            # Copy all date folders to history
+            cp -r benchmarks/results/* github-results/history/
             
-            # Copy to latest folder (overwrite previous)
-            cp -r benchmarks/results/* github-results/latest/
+            # Copy the most recent results to latest folder
+            # Find the most recent date folder
+            LATEST_DATE=$(ls -1 benchmarks/results/ | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' | sort -r | head -1)
+            if [ -n "$LATEST_DATE" ]; then
+              # Find the most recent time folder in the latest date
+              LATEST_TIME=$(ls -1 benchmarks/results/${LATEST_DATE}/ | grep -E '^[0-9]{2}-[0-9]{2}-[0-9]{2}$' | sort -r | head -1)
+              if [ -n "$LATEST_TIME" ]; then
+                cp -r benchmarks/results/${LATEST_DATE}/${LATEST_TIME}/* github-results/latest/
+              fi
+            fi
             
-            # Create index files
+            # Create function-based organization
+            mkdir -p github-results/by-function
+            
+            # Organize by function type if JSON files exist
+            # Find all JSON files in date folders
+            for json_file in $(find benchmarks/results -name "*.json" -type f); do
+              if [ -f "$json_file" ]; then
+                # Extract function name from filename or content
+                filename=$(basename "$json_file")
+                
+                # Try to determine function type from filename or content
+                if [[ "$filename" == *"goroutine"* ]]; then
+                  func_type="goroutines"
+                elif [[ "$filename" == *"channel"* ]]; then
+                  func_type="channels"
+                elif [[ "$filename" == *"mutex"* ]]; then
+                  func_type="mutex"
+                elif [[ "$filename" == *"waitgroup"* ]]; then
+                  func_type="waitgroups"
+                elif [[ "$filename" == *"semaphore"* ]]; then
+                  func_type="semaphores"
+                elif [[ "$filename" == *"ctx"* ]] || [[ "$filename" == *"context"* ]]; then
+                  func_type="context"
+                elif [[ "$filename" == *"select"* ]]; then
+                  func_type="select"
+                elif [[ "$filename" == *"once"* ]]; then
+                  func_type="once"
+                else
+                  func_type="other"
+                fi
+                
+                # Create function directory and copy files
+                mkdir -p "github-results/by-function/${func_type}"
+                cp "$json_file" "github-results/by-function/${func_type}/"
+                
+                # Copy corresponding markdown file if exists
+                md_file="${json_file%.json}.md"
+                if [ -f "$md_file" ]; then
+                  cp "$md_file" "github-results/by-function/${func_type}/"
+                fi
+              fi
+            done
+            
+            # Create function-based index
+            echo "# Benchmark Results by Function" > github-results/by-function/README.md
+            echo "" >> github-results/by-function/README.md
+            echo "Benchmark results organized by concurrency primitive type:" >> github-results/by-function/README.md
+            echo "" >> github-results/by-function/README.md
+            
+            # List all function types
+            for func_dir in github-results/by-function/*/; do
+              if [ -d "$func_dir" ]; then
+                func_name=$(basename "$func_dir")
+                echo "## 🔧 ${func_name^}" >> github-results/by-function/README.md
+                echo "" >> github-results/by-function/README.md
+                
+                # List files in this function directory
+                for file in "$func_dir"*; do
+                  if [ -f "$file" ]; then
+                    filename=$(basename "$file")
+                    echo "- [${filename}](./${func_name}/${filename})" >> github-results/by-function/README.md
+                  fi
+                done
+                echo "" >> github-results/by-function/README.md
+              fi
+            done
+            
+            # Create main index file
             echo "# Benchmark Results" > github-results/README.md
             echo "" >> github-results/README.md
             echo "## Latest Results" >> github-results/README.md
@@ -92,20 +169,67 @@ jobs:
             echo "" >> github-results/README.md
             
             # Add quick summary if markdown files exist
-            if [ -f benchmarks/results/*.md ]; then
+            # Find the most recent markdown file
+            LATEST_MD=$(find benchmarks/results -name "*.md" -type f | sort -r | head -1)
+            if [ -n "$LATEST_MD" ] && [ -f "$LATEST_MD" ]; then
               echo "## Quick Summary" >> github-results/README.md
               echo "" >> github-results/README.md
               echo "\`\`\`" >> github-results/README.md
-              head -n 30 benchmarks/results/*.md >> github-results/README.md
+              head -n 30 "$LATEST_MD" >> github-results/README.md
               echo "\`\`\`" >> github-results/README.md
             fi
             
-            # Create history index
+            # Create history index (organized by dates)
             echo "# Benchmark History" > github-results/history/README.md
             echo "" >> github-results/history/README.md
-            echo "All benchmark runs in chronological order:" >> github-results/history/README.md
+            echo "Benchmark runs organized by date:" >> github-results/history/README.md
             echo "" >> github-results/history/README.md
-            ls -la github-results/history/ | grep "^d" | awk '{print "- [" $9 "](./", $9, "/)" }' | grep -v "README.md" >> github-results/history/README.md
+            
+            # List all date folders in reverse chronological order
+            if [ -d "github-results/history" ]; then
+              for date_dir in $(ls -1 github-results/history/ | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' | sort -r); do
+                if [ -d "github-results/history/${date_dir}" ]; then
+                  echo "## 📅 ${date_dir}" >> github-results/history/README.md
+                  echo "" >> github-results/history/README.md
+                  
+                  # List time folders for this date
+                  for time_dir in $(ls -1 github-results/history/${date_dir}/ | grep -E '^[0-9]{2}-[0-9]{2}-[0-9]{2}$' | sort -r); do
+                    if [ -d "github-results/history/${date_dir}/${time_dir}" ]; then
+                      echo "- [${time_dir} UTC](./${date_dir}/${time_dir}/)" >> github-results/history/README.md
+                    fi
+                  done
+                  echo "" >> github-results/history/README.md
+                fi
+              done
+            fi
+            
+            # Create daily summary file for today's date
+            echo "# Benchmark Results for ${DATE_FOLDER}" > github-results/history/${DATE_FOLDER}/README.md
+            echo "" >> github-results/history/${DATE_FOLDER}/README.md
+            echo "All benchmark runs for $(date -u -d ${DATE_FOLDER} '+%B %d, %Y'):" >> github-results/history/${DATE_FOLDER}/README.md
+            echo "" >> github-results/history/${DATE_FOLDER}/README.md
+            
+            # List all runs for today
+            for time_dir in $(ls -1 github-results/history/${DATE_FOLDER}/ | grep -E '^[0-9]{2}-[0-9]{2}-[0-9]{2}$' | sort -r); do
+              if [ -d "github-results/history/${DATE_FOLDER}/${time_dir}" ]; then
+                echo "## 🕐 ${time_dir} UTC" >> github-results/history/${DATE_FOLDER}/README.md
+                echo "" >> github-results/history/${DATE_FOLDER}/README.md
+                echo "**Branch:** ${BRANCH_NAME}" >> github-results/history/${DATE_FOLDER}/README.md
+                echo "**Commit:** [\`${COMMIT_SHA:0:7}\`](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA})" >> github-results/history/${DATE_FOLDER}/README.md
+                echo "" >> github-results/history/${DATE_FOLDER}/README.md
+                echo "📁 [View Results](./${time_dir}/)" >> github-results/history/${DATE_FOLDER}/README.md
+                echo "" >> github-results/history/${DATE_FOLDER}/README.md
+                
+                # Add quick preview of results if available
+                if [ -f "github-results/history/${DATE_FOLDER}/${time_dir}/"*.md ]; then
+                  echo "**Quick Preview:**" >> github-results/history/${DATE_FOLDER}/README.md
+                  echo "\`\`\`" >> github-results/history/${DATE_FOLDER}/README.md
+                  head -n 10 github-results/history/${DATE_FOLDER}/${time_dir}/*.md | head -n 10 >> github-results/history/${DATE_FOLDER}/README.md
+                  echo "\`\`\`" >> github-results/history/${DATE_FOLDER}/README.md
+                  echo "" >> github-results/history/${DATE_FOLDER}/README.md
+                fi
+              fi
+            done
           fi
 
       - name: Commit results to benchmark-results branch
