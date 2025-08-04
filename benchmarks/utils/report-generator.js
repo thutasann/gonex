@@ -45,79 +45,101 @@ function calculateImprovement(baseline, improved) {
 function generateConsoleReport(results) {
   console.log(chalk.bold.cyan('\n📊 Benchmark Results Summary\n'));
 
-  if (results.goroutines) {
-    console.log(chalk.yellow('🔄 Goroutine Benchmarks:\n'));
+  // Generate sections for each benchmark type
+  Object.entries(results).forEach(([benchmarkType, benchmarkResults]) => {
+    if (!benchmarkResults || typeof benchmarkResults !== 'object') return;
 
-    // Basic functionality results
-    if (results.goroutines.simple) {
-      console.log(chalk.green('✅ Simple Goroutine:'));
-      console.log(
-        `   Average: ${formatTime(results.goroutines.simple.average)}`
-      );
-      console.log(`   Min: ${formatTime(results.goroutines.simple.min)}`);
-      console.log(`   Max: ${formatTime(results.goroutines.simple.max)}`);
-      console.log(
-        `   Std Dev: ${formatTime(results.goroutines.simple.stdDev)}\n`
-      );
-    }
+    const sectionTitle =
+      benchmarkType.charAt(0).toUpperCase() + benchmarkType.slice(1);
+    console.log(chalk.yellow(`🔄 ${sectionTitle} Benchmarks:\n`));
 
-    if (results.goroutines.async) {
-      console.log(chalk.green('✅ Async Goroutine:'));
-      console.log(
-        `   Average: ${formatTime(results.goroutines.async.average)}`
-      );
-      console.log(`   Min: ${formatTime(results.goroutines.async.min)}`);
-      console.log(`   Max: ${formatTime(results.goroutines.async.max)}`);
-      console.log(
-        `   Std Dev: ${formatTime(results.goroutines.async.stdDev)}\n`
-      );
-    }
+    // Display basic functionality results
+    Object.entries(benchmarkResults).forEach(([testName, testResult]) => {
+      if (testResult && testResult.average !== undefined) {
+        const displayName =
+          testName.charAt(0).toUpperCase() + testName.slice(1);
+        console.log(chalk.green(`✅ ${displayName}:`));
+        console.log(`   Average: ${formatTime(testResult.average)}`);
+        console.log(`   Min: ${formatTime(testResult.min)}`);
+        console.log(`   Max: ${formatTime(testResult.max)}`);
+        console.log(`   Std Dev: ${formatTime(testResult.stdDev)}\n`);
+      }
+    });
 
-    // CPU-intensive comparison
-    if (results.goroutines.cpuIntensive) {
-      const { eventLoop, workerThread } = results.goroutines.cpuIntensive;
-      const improvement = calculateImprovement(
-        eventLoop.average,
-        workerThread.average
-      );
+    // Display comparison results
+    Object.entries(benchmarkResults).forEach(([testName, testResult]) => {
+      if (testResult && testResult.eventLoop && testResult.workerThread) {
+        const improvement = calculateImprovement(
+          testResult.eventLoop.average,
+          testResult.workerThread.average
+        );
 
-      console.log(chalk.green('⚡ CPU-Intensive Performance Comparison:'));
-      console.log(`   Event-Loop: ${formatTime(eventLoop.average)}`);
-      console.log(`   Worker-Threads: ${formatTime(workerThread.average)}`);
-      console.log(`   Improvement: ${improvement}\n`);
-    }
+        const comparisonTitle =
+          testName.charAt(0).toUpperCase() +
+          testName.slice(1).replace(/([A-Z])/g, ' $1');
+        console.log(
+          chalk.green(`⚡ ${comparisonTitle} Performance Comparison:`)
+        );
+        console.log(
+          `   Event-Loop: ${formatTime(testResult.eventLoop.average)}`
+        );
+        console.log(
+          `   Worker-Threads: ${formatTime(testResult.workerThread.average)}`
+        );
+        console.log(`   Improvement: ${improvement}\n`);
+      }
+    });
 
-    // Scaling results
-    if (results.goroutines.goAllScaling) {
-      console.log(chalk.green('📈 goAll Scaling Performance:'));
-      Object.entries(results.goroutines.goAllScaling).forEach(
-        ([taskCount, result]) => {
-          const improvement = calculateImprovement(
-            result.eventLoop.average,
-            result.workerThread.average
-          );
-          console.log(`   ${taskCount} tasks:`);
-          console.log(
-            `     Event-Loop: ${formatTime(result.eventLoop.average)}`
-          );
-          console.log(
-            `     Worker-Threads: ${formatTime(result.workerThread.average)}`
-          );
-          console.log(`     Improvement: ${improvement}`);
-        }
-      );
-      console.log();
-    }
+    // Display scaling results
+    Object.entries(benchmarkResults).forEach(([testName, testResult]) => {
+      if (
+        testResult &&
+        typeof testResult === 'object' &&
+        !testResult.average &&
+        !testResult.eventLoop
+      ) {
+        const scalingTitle =
+          testName.charAt(0).toUpperCase() +
+          testName.slice(1).replace(/([A-Z])/g, ' $1');
+        console.log(chalk.green(`📈 ${scalingTitle}:`));
+        Object.entries(testResult).forEach(([scaleKey, scaleResult]) => {
+          if (
+            scaleResult &&
+            scaleResult.eventLoop &&
+            scaleResult.workerThread
+          ) {
+            const improvement = calculateImprovement(
+              scaleResult.eventLoop.average,
+              scaleResult.workerThread.average
+            );
+            console.log(`   ${scaleKey}:`);
+            console.log(
+              `     Event-Loop: ${formatTime(scaleResult.eventLoop.average)}`
+            );
+            console.log(
+              `     Worker-Threads: ${formatTime(scaleResult.workerThread.average)}`
+            );
+            console.log(`     Improvement: ${improvement}`);
+          }
+        });
+        console.log();
+      }
+    });
 
-    // Memory usage
-    if (results.goroutines.memoryUsage) {
-      const { memoryDiff } = results.goroutines.memoryUsage;
-      console.log(chalk.green('💾 Memory Usage:'));
-      console.log(`   Heap Used: ${formatBytes(memoryDiff.heapUsed)}`);
-      console.log(`   Heap Total: ${formatBytes(memoryDiff.heapTotal)}`);
-      console.log(`   External: ${formatBytes(memoryDiff.external)}\n`);
-    }
-  }
+    // Display memory usage results
+    Object.entries(benchmarkResults).forEach(([testName, testResult]) => {
+      if (testResult && testResult.memoryDiff) {
+        const { memoryDiff } = testResult;
+        const memoryTitle =
+          testName.charAt(0).toUpperCase() +
+          testName.slice(1).replace(/([A-Z])/g, ' $1');
+        console.log(chalk.green(`💾 ${memoryTitle}:`));
+        console.log(`   Heap Used: ${formatBytes(memoryDiff.heapUsed)}`);
+        console.log(`   Heap Total: ${formatBytes(memoryDiff.heapTotal)}`);
+        console.log(`   External: ${formatBytes(memoryDiff.external)}\n`);
+      }
+    });
+  });
 }
 
 /**
@@ -133,114 +155,122 @@ function generateMarkdownReport(results, timestamp) {
 
 This report contains comprehensive benchmark results for the Gonex concurrency primitives, focusing on performance, scalability, and memory usage.
 
-## Goroutine Benchmarks
-
-### Basic Functionality
-
 `;
 
-  if (results.goroutines) {
-    // Basic functionality table
+  // Generate sections for each benchmark type
+  Object.entries(results).forEach(([benchmarkType, benchmarkResults]) => {
+    if (!benchmarkResults || typeof benchmarkResults !== 'object') return;
+
+    // Add section header
+    const sectionTitle =
+      benchmarkType.charAt(0).toUpperCase() + benchmarkType.slice(1);
+    markdown += `## ${sectionTitle} Benchmarks\n\n`;
+
+    // Generate basic functionality table
     const basicData = [];
-    if (results.goroutines.simple) {
-      basicData.push([
-        'Simple Goroutine',
-        formatTime(results.goroutines.simple.average),
-        formatTime(results.goroutines.simple.min),
-        formatTime(results.goroutines.simple.max),
-        formatTime(results.goroutines.simple.stdDev),
+    Object.entries(benchmarkResults).forEach(([testName, testResult]) => {
+      if (testResult && testResult.average !== undefined) {
+        basicData.push([
+          testName.charAt(0).toUpperCase() + testName.slice(1),
+          formatTime(testResult.average),
+          formatTime(testResult.min),
+          formatTime(testResult.max),
+          formatTime(testResult.stdDev),
+        ]);
+      }
+    });
+
+    if (basicData.length > 0) {
+      markdown += `### Basic Functionality\n\n`;
+      markdown += markdownTable([
+        ['Benchmark', 'Average', 'Min', 'Max', 'Std Dev'],
+        ...basicData,
       ]);
-    }
-    if (results.goroutines.async) {
-      basicData.push([
-        'Async Goroutine',
-        formatTime(results.goroutines.async.average),
-        formatTime(results.goroutines.async.min),
-        formatTime(results.goroutines.async.max),
-        formatTime(results.goroutines.async.stdDev),
-      ]);
-    }
-    if (results.goroutines.goRace) {
-      basicData.push([
-        'goRace',
-        formatTime(results.goroutines.goRace.average),
-        formatTime(results.goroutines.goRace.min),
-        formatTime(results.goroutines.goRace.max),
-        formatTime(results.goroutines.goRace.stdDev),
-      ]);
-    }
-    if (results.goroutines.goWithRetry) {
-      basicData.push([
-        'goWithRetry',
-        formatTime(results.goroutines.goWithRetry.average),
-        formatTime(results.goroutines.goWithRetry.min),
-        formatTime(results.goroutines.goWithRetry.max),
-        formatTime(results.goroutines.goWithRetry.stdDev),
-      ]);
+      markdown += '\n';
     }
 
-    markdown += markdownTable([
-      ['Benchmark', 'Average', 'Min', 'Max', 'Std Dev'],
-      ...basicData,
-    ]);
+    // Handle comparison results (like CPU-intensive comparisons)
+    Object.entries(benchmarkResults).forEach(([testName, testResult]) => {
+      if (testResult && testResult.eventLoop && testResult.workerThread) {
+        const improvement = calculateImprovement(
+          testResult.eventLoop.average,
+          testResult.workerThread.average
+        );
 
-    // CPU-intensive comparison
-    if (results.goroutines.cpuIntensive) {
-      const { eventLoop, workerThread } = results.goroutines.cpuIntensive;
-      const improvement = calculateImprovement(
-        eventLoop.average,
-        workerThread.average
-      );
+        const comparisonTitle =
+          testName.charAt(0).toUpperCase() +
+          testName.slice(1).replace(/([A-Z])/g, ' $1');
+        markdown += `### ${comparisonTitle} Performance Comparison\n\n`;
+        markdown += `| Mode | Average | Min | Max | Std Dev |\n`;
+        markdown += `|------|---------|-----|-----|---------|\n`;
+        markdown += `| Event-Loop | ${formatTime(testResult.eventLoop.average)} | ${formatTime(testResult.eventLoop.min)} | ${formatTime(testResult.eventLoop.max)} | ${formatTime(testResult.eventLoop.stdDev)} |\n`;
+        markdown += `| Worker-Threads | ${formatTime(testResult.workerThread.average)} | ${formatTime(testResult.workerThread.min)} | ${formatTime(testResult.workerThread.max)} | ${formatTime(testResult.workerThread.stdDev)} |\n\n`;
+        markdown += `**Performance Improvement:** ${improvement}\n\n`;
+      }
+    });
 
-      markdown += `
+    // Handle scaling results
+    Object.entries(benchmarkResults).forEach(([testName, testResult]) => {
+      if (
+        testResult &&
+        typeof testResult === 'object' &&
+        !testResult.average &&
+        !testResult.eventLoop
+      ) {
+        // This might be a scaling result object
+        const scalingData = [];
+        Object.entries(testResult).forEach(([scaleKey, scaleResult]) => {
+          if (
+            scaleResult &&
+            scaleResult.eventLoop &&
+            scaleResult.workerThread
+          ) {
+            const improvement = calculateImprovement(
+              scaleResult.eventLoop.average,
+              scaleResult.workerThread.average
+            );
+            scalingData.push([
+              scaleKey,
+              formatTime(scaleResult.eventLoop.average),
+              formatTime(scaleResult.workerThread.average),
+              improvement,
+            ]);
+          }
+        });
 
-### CPU-Intensive Performance Comparison
-
-| Mode | Average | Min | Max | Std Dev |
-|------|---------|-----|-----|---------|
-| Event-Loop | ${formatTime(eventLoop.average)} | ${formatTime(eventLoop.min)} | ${formatTime(eventLoop.max)} | ${formatTime(eventLoop.stdDev)} |
-| Worker-Threads | ${formatTime(workerThread.average)} | ${formatTime(workerThread.min)} | ${formatTime(workerThread.max)} | ${formatTime(workerThread.stdDev)} |
-
-**Performance Improvement:** ${improvement}
-`;
-    }
-
-    // Scaling results
-    if (results.goroutines.goAllScaling) {
-      markdown += `
-
-### goAll Scaling Performance
-
-| Task Count | Event-Loop | Worker-Threads | Improvement |
-|------------|------------|-----------------|-------------|
-`;
-
-      Object.entries(results.goroutines.goAllScaling).forEach(
-        ([taskCount, result]) => {
-          const improvement = calculateImprovement(
-            result.eventLoop.average,
-            result.workerThread.average
+        if (scalingData.length > 0) {
+          const scalingTitle =
+            testName.charAt(0).toUpperCase() +
+            testName.slice(1).replace(/([A-Z])/g, ' $1');
+          markdown += `### ${scalingTitle}\n\n`;
+          markdown += `| Scale | Event-Loop | Worker-Threads | Improvement |\n`;
+          markdown += `|-------|------------|-----------------|-------------|\n`;
+          scalingData.forEach(
+            ([scale, eventLoop, workerThread, improvement]) => {
+              markdown += `| ${scale} | ${eventLoop} | ${workerThread} | ${improvement} |\n`;
+            }
           );
-          markdown += `| ${taskCount} | ${formatTime(result.eventLoop.average)} | ${formatTime(result.workerThread.average)} | ${improvement} |\n`;
+          markdown += '\n';
         }
-      );
-    }
+      }
+    });
 
-    // Memory usage
-    if (results.goroutines.memoryUsage) {
-      const { memoryDiff } = results.goroutines.memoryUsage;
-      markdown += `
-
-### Memory Usage
-
-| Metric | Value |
-|--------|-------|
-| Heap Used | ${formatBytes(memoryDiff.heapUsed)} |
-| Heap Total | ${formatBytes(memoryDiff.heapTotal)} |
-| External | ${formatBytes(memoryDiff.external)} |
-`;
-    }
-  }
+    // Handle memory usage results
+    Object.entries(benchmarkResults).forEach(([testName, testResult]) => {
+      if (testResult && testResult.memoryDiff) {
+        const { memoryDiff } = testResult;
+        const memoryTitle =
+          testName.charAt(0).toUpperCase() +
+          testName.slice(1).replace(/([A-Z])/g, ' $1');
+        markdown += `### ${memoryTitle}\n\n`;
+        markdown += `| Metric | Value |\n`;
+        markdown += `|--------|-------|\n`;
+        markdown += `| Heap Used | ${formatBytes(memoryDiff.heapUsed)} |\n`;
+        markdown += `| Heap Total | ${formatBytes(memoryDiff.heapTotal)} |\n`;
+        markdown += `| External | ${formatBytes(memoryDiff.external)} |\n\n`;
+      }
+    });
+  });
 
   markdown += `
 
