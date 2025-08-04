@@ -73,128 +73,22 @@ jobs:
 
       - name: Prepare benchmark results for GitHub
         run: |
-          # Create timestamps for this run
-          DATE_FOLDER=$(date -u +"%Y-%m-%d")
-          TIME_FOLDER=$(date -u +"%H-%M-%S")
-          RUN_ID=$(date -u +"%Y%m%d_%H%M%S")
-          COMMIT_SHA="${{ github.sha }}"
-          BRANCH_NAME="${{ github.event.inputs.branch || github.ref_name }}"
-
-          # Create results directory structure with date-based organization
-          mkdir -p github-results
-          mkdir -p github-results/latest
-          mkdir -p github-results/history/${DATE_FOLDER}/${TIME_FOLDER}
-
-          # Copy results from CI-generated benchmarks to structured directories
-          if [ -d "benchmarks/results" ]; then
-            echo "📁 Found benchmarks/results directory"
-            echo "📂 Contents of benchmarks/results:"
-            ls -la benchmarks/results/
-            echo ""
-            
-            # Copy all date folders to history (preserve existing history)
-            for date_folder in benchmarks/results/*/; do
-              if [ -d "$date_folder" ]; then
-                date_name=$(basename "$date_folder")
-                echo "📅 Processing date folder: $date_name"
-                # Copy each date folder to history
-                cp -r "$date_folder" "github-results/history/"
-                echo "✅ Copied $date_name to history"
-              fi
-            done
-            
-            # Copy the most recent results to latest folder
-            # Find the most recent date folder
-            LATEST_DATE=$(ls -1 benchmarks/results/ | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' | sort -r | head -1)
-            echo "📅 Latest date folder: $LATEST_DATE"
-            if [ -n "$LATEST_DATE" ]; then
-              # Find the most recent time folder in the latest date
-              LATEST_TIME=$(ls -1 benchmarks/results/${LATEST_DATE}/ | grep -E '^[0-9]{2}-[0-9]{2}-[0-9]{2}$' | sort -r | head -1)
-              echo "🕐 Latest time folder: $LATEST_TIME"
-              if [ -n "$LATEST_TIME" ]; then
-                echo "📁 Copying latest results to github-results/latest/"
-                cp -r benchmarks/results/${LATEST_DATE}/${LATEST_TIME}/* github-results/latest/
-                echo "✅ Latest results copied"
-              fi
-            fi
-          else
-            # If no results directory exists, create a placeholder
-            echo "No benchmark results found. This might be due to .gitignore exclusion."
-            mkdir -p github-results/latest
-            echo "# No Benchmark Results" > github-results/latest/README.md
-            echo "" >> github-results/latest/README.md
-            echo "No benchmark results were generated in this run." >> github-results/latest/README.md
-          fi
-            
-          # Create simple main README
-          echo "# Gonex Benchmark Results" > github-results/README.md
-          echo "" >> github-results/README.md
-          echo "Performance benchmarks for the Gonex concurrency library." >> github-results/README.md
-          echo "" >> github-results/README.md
-          echo "## 📊 Latest Results" >> github-results/README.md
-          echo "" >> github-results/README.md
-          echo "📅 **Run Date:** $(date -u)" >> github-results/README.md
-          echo "🌟 **Branch:** ${BRANCH_NAME}" >> github-results/README.md
-          echo "🔗 **Commit:** [\`${COMMIT_SHA:0:7}\`](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA})" >> github-results/README.md
-          echo "" >> github-results/README.md
-          echo "### Quick Links:" >> github-results/README.md
-          echo "- 📁 [Latest Results](./latest/)" >> github-results/README.md
-          echo "- 📈 [Historical Results](./history/)" >> github-results/README.md
-          echo "" >> github-results/README.md
-            
-          # Create history index (organized by dates)
-          echo "# Benchmark History" > github-results/history/README.md
-          echo "" >> github-results/history/README.md
-          echo "Benchmark runs organized by date:" >> github-results/history/README.md
-          echo "" >> github-results/history/README.md
-            
-          # List all date folders in reverse chronological order
-          if [ -d "github-results/history" ]; then
-            for date_dir in $(ls -1 github-results/history/ | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' | sort -r); do
-              if [ -d "github-results/history/${date_dir}" ]; then
-                echo "## 📅 ${date_dir}" >> github-results/history/README.md
-                echo "" >> github-results/history/README.md
-                
-                # List time folders for this date
-                for time_dir in $(ls -1 github-results/history/${date_dir}/ | grep -E '^[0-9]{2}-[0-9]{2}-[0-9]{2}$' | sort -r); do
-                  if [ -d "github-results/history/${date_dir}/${time_dir}" ]; then
-                    echo "- [${time_dir} UTC](./${date_dir}/${time_dir}/)" >> github-results/history/README.md
-                  fi
-                done
-                echo "" >> github-results/history/README.md
-              fi
-            done
-          fi
-            
-          # Create daily summary file for today's date
-          if [ -d "github-results/history/${DATE_FOLDER}" ]; then
-            echo "# Benchmark Results for ${DATE_FOLDER}" > github-results/history/${DATE_FOLDER}/README.md
-            echo "" >> github-results/history/${DATE_FOLDER}/README.md
-            echo "All benchmark runs for $(date -u -d ${DATE_FOLDER} '+%B %d, %Y'):" >> github-results/history/${DATE_FOLDER}/README.md
-            echo "" >> github-results/history/${DATE_FOLDER}/README.md
-            
-            # List all runs for today
-            for time_dir in $(ls -1 github-results/history/${DATE_FOLDER}/ | grep -E '^[0-9]{2}-[0-9]{2}-[0-9]{2}$' | sort -r); do
-              if [ -d "github-results/history/${DATE_FOLDER}/${time_dir}" ]; then
-                echo "## 🕐 ${time_dir} UTC" >> github-results/history/${DATE_FOLDER}/README.md
-                echo "" >> github-results/history/${DATE_FOLDER}/README.md
-                echo "**Branch:** ${BRANCH_NAME}" >> github-results/history/${DATE_FOLDER}/README.md
-                echo "**Commit:** [\`${COMMIT_SHA:0:7}\`](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA})" >> github-results/history/${DATE_FOLDER}/README.md
-                echo "" >> github-results/history/${DATE_FOLDER}/README.md
-                echo "📁 [View Results](./${time_dir}/)" >> github-results/history/${DATE_FOLDER}/README.md
-                echo "" >> github-results/history/${DATE_FOLDER}/README.md
-                
-                # Add quick preview of results if available
-                if [ -f "github-results/history/${DATE_FOLDER}/${time_dir}/"*.md ]; then
-                  echo "**Quick Preview:**" >> github-results/history/${DATE_FOLDER}/README.md
-                  echo "\`\`\`" >> github-results/history/${DATE_FOLDER}/README.md
-                  head -n 10 github-results/history/${DATE_FOLDER}/${time_dir}/*.md | head -n 10 >> github-results/history/${DATE_FOLDER}/README.md
-                  echo "\`\`\`" >> github-results/history/${DATE_FOLDER}/README.md
-                  echo "" >> github-results/history/${DATE_FOLDER}/README.md
-                fi
-              fi
-            done
-          fi
+          # Create simple README for the results
+          echo "# Gonex Benchmark Results" > benchmarks/README.md
+          echo "" >> benchmarks/README.md
+          echo "Performance benchmarks for the Gonex concurrency library." >> benchmarks/README.md
+          echo "" >> benchmarks/README.md
+          echo "📅 **Generated:** $(date -u)" >> benchmarks/README.md
+          echo "🌟 **Branch:** ${{ github.event.inputs.branch || github.ref_name }}" >> benchmarks/README.md
+          echo "🔗 **Commit:** [\`${{ github.sha }}\`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})" >> benchmarks/README.md
+          echo "" >> benchmarks/README.md
+          echo "## 📊 Results Structure" >> benchmarks/README.md
+          echo "" >> benchmarks/README.md
+          echo "Results are organized by date and time:" >> benchmarks/README.md
+          echo "- Date folders: YYYY-MM-DD" >> benchmarks/README.md
+          echo "- Time folders: HH-MM-SS" >> benchmarks/README.md
+          echo "" >> benchmarks/README.md
+          echo "📁 [View Results](./results/)" >> benchmarks/README.md
 
       - name: Commit results to benchmark-results branch
         run: |
@@ -202,118 +96,26 @@ jobs:
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Actions"
 
-          # Check if benchmark-results branch exists and fetch it
-          git fetch origin benchmark-results:benchmark-results 2>/dev/null || git checkout --orphan benchmark-results
+          # Try to fetch the benchmark-results branch
+          git fetch origin benchmark-results:benchmark-results 2>/dev/null || echo "Branch doesn't exist yet"
 
-          # Switch to benchmark-results branch
-          git checkout benchmark-results 2>/dev/null || echo "Already on benchmark-results branch"
+          # Create or checkout the branch
+          git checkout benchmark-results 2>/dev/null || git checkout -b benchmark-results
 
-          # Preserve existing history by copying current results to history
-          if [ -d "history" ]; then
-            # Copy existing history to temp location
-            cp -r history temp_history_backup
-          fi
+          # Clear everything except .git
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' ! -name 'benchmarks' -exec rm -rf {} +
 
-          # Clear everything except .git and temp backup
-          find . -mindepth 1 -maxdepth 1 ! -name '.git' ! -name 'github-results' ! -name 'temp_history_backup' -exec rm -rf {} +
-
-          # Move new results to root
-          if [ -d "github-results" ]; then
-            mv github-results/* .
-            rmdir github-results
-          fi
-
-          # Restore existing history and merge with new results
-          if [ -d "temp_history_backup" ]; then
-            # Copy existing history back
-            cp -r temp_history_backup/* history/
-            rm -rf temp_history_backup
-            
-            # Merge new results with existing history
-            for date_folder in history/*/; do
-              if [ -d "$date_folder" ]; then
-                date_name=$(basename "$date_folder")
-                # If this date folder exists in new results, merge them
-                if [ -d "$date_name" ]; then
-                  cp -r "$date_name"/* "history/$date_name/"
-                  rm -rf "$date_name"
-                fi
-              fi
-            done
-            
-            # Copy any new date folders that don't exist in history
-            for date_folder in */; do
-              if [ -d "$date_folder" ] && [ "$date_folder" != "history/" ]; then
-                date_name=$(basename "$date_folder")
-                if [ ! -d "history/$date_name" ]; then
-                  cp -r "$date_folder" "history/"
-                fi
-              fi
-            done
+          # Copy the entire benchmarks directory structure to root
+          if [ -d "benchmarks" ]; then
+            cp -r benchmarks/* .
+            echo "✅ Benchmark results copied to root"
           fi
 
           # Add and commit
           git add .
-          git commit -m "📊 Benchmark results from ${{ github.event.inputs.branch || github.ref_name }} ($(date -u +"%Y-%m-%d %H:%M:%S UTC"))" || exit 0
+          git commit -m "📊 Benchmark results from ${{ github.event.inputs.branch || github.ref_name }} ($(date -u +"%Y-%m-%d %H:%M:%S UTC"))" || echo "No changes to commit"
 
           # Push to benchmark-results branch
-          git push origin benchmark-results
-
-      - name: Create GitHub Pages index (optional)
-        run: |
-          # Switch back to benchmark-results for Pages setup
-          git checkout benchmark-results
-
-          # Create a simple index.html for GitHub Pages (if enabled)
-          cat > index.html << 'EOF'
-          <!DOCTYPE html>
-          <html lang="en">
-          <head>
-              <meta charset="UTF-8">
-              <meta name="viewport" content="width=device-width, initial-scale=1.0">
-              <title>Gonex Benchmark Results</title>
-              <style>
-                  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 40px; }
-                  .container { max-width: 800px; margin: 0 auto; }
-                  .header { border-bottom: 1px solid #eee; padding-bottom: 20px; margin-bottom: 30px; }
-                  .section { margin: 20px 0; }
-                  .link-button { display: inline-block; padding: 10px 20px; background: #0366d6; color: white; text-decoration: none; border-radius: 6px; margin: 5px; }
-                  .link-button:hover { background: #0256cc; }
-                  .timestamp { color: #666; font-size: 14px; }
-              </style>
-          </head>
-          <body>
-              <div class="container">
-                  <div class="header">
-                      <h1>🚀 Gonex Benchmark Results</h1>
-                      <p>Performance benchmarks for the Gonex concurrency library</p>
-                  </div>
-                  
-                  <div class="section">
-                      <h2>📊 Latest Results</h2>
-                      <a href="./latest/" class="link-button">View Latest Benchmarks</a>
-                      <a href="./README.md" class="link-button">View README</a>
-                  </div>
-                  
-                  <div class="section">
-                      <h2>📈 Historical Data</h2>
-                      <a href="./history/" class="link-button">Browse History</a>
-                      <p class="timestamp">Results are updated automatically when benchmarks run</p>
-                  </div>
-                  
-                  <div class="section">
-                      <h2>🔗 Links</h2>
-                      <a href="https://github.com/${{ github.repository }}" class="link-button">Main Repository</a>
-                      <a href="https://github.com/${{ github.repository }}/tree/benchmark-results" class="link-button">Results Branch</a>
-                  </div>
-              </div>
-          </body>
-          </html>
-          EOF
-
-          # Commit the index.html
-          git add index.html
-          git commit -m "📄 Add GitHub Pages index" || echo "No changes to commit"
           git push origin benchmark-results
 
       - name: Upload benchmark artifacts (backup)
