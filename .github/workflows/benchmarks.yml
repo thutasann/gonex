@@ -119,18 +119,34 @@ jobs:
             git checkout -b benchmark-results
           fi
 
-          # Clear everything except .git and temp results
-          find . -mindepth 1 -maxdepth 1 ! -name '.git' ! -name 'benchmark-results-temp' -exec rm -rf {} +
+          # Preserve existing results by copying them to temp
+          if [ -d "results" ]; then
+            echo "📂 Preserving existing results..."
+            cp -r results temp-existing-results
+            echo "✅ Existing results preserved"
+          fi
+
+          # Clear everything except .git, temp results, and existing results
+          find . -mindepth 1 -maxdepth 1 ! -name '.git' ! -name 'benchmark-results-temp' ! -name 'temp-existing-results' -exec rm -rf {} +
 
           # Copy results from temp location to root
           if [ -d "benchmark-results-temp" ]; then
             cp -r benchmark-results-temp results
-            echo "✅ Results folder copied to root"
+            echo "✅ New results folder copied to root"
             # Clean up temp location
             rm -rf benchmark-results-temp
           else
             echo "❌ No results folder found in temp location"
             exit 1
+          fi
+
+          # Merge existing results back
+          if [ -d "temp-existing-results" ]; then
+            echo "📂 Merging existing results..."
+            # Copy existing results back, preserving all date/time folders
+            cp -r temp-existing-results/* results/
+            rm -rf temp-existing-results
+            echo "✅ Existing results merged back"
           fi
 
           # Add and commit
