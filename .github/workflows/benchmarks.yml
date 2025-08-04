@@ -1,0 +1,95 @@
+name: Benchmark Suite
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to run benchmarks on'
+        required: true
+        default: 'master'
+        type: string
+
+jobs:
+  benchmarks:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master' || github.event.inputs.branch == 'master'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch || 'master' }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: 'npm'
+
+      - name: Install root project dependencies
+        run: npm ci
+
+      - name: Build root project
+        run: npm run build
+
+      - name: Install benchmark dependencies
+        working-directory: ./benchmarks
+        run: npm install
+
+      - name: Run benchmarks
+        working-directory: ./benchmarks
+        run: npm run benchmark
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ github.sha }}
+          path: benchmarks/results/
+          retention-days: 30
+
+      - name: Display benchmark summary
+        working-directory: ./benchmarks
+        run: |
+          echo "📊 Benchmark Results Generated"
+          echo "================================"
+          ls -la results/
+          echo ""
+          echo "📝 Latest Results:"
+          if [ -f results/*.md ]; then
+            head -n 20 results/*.md | tail -n +1
+          fi
+
+      - name: Comment PR with results (if PR)
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            // Find the latest markdown report
+            const resultsDir = 'benchmarks/results';
+            const files = fs.readdirSync(resultsDir);
+            const markdownFiles = files.filter(file => file.endsWith('.md'));
+
+            if (markdownFiles.length > 0) {
+              const latestReport = markdownFiles.sort().pop();
+              const reportPath = path.join(resultsDir, latestReport);
+              const reportContent = fs.readFileSync(reportPath, 'utf8');
+              
+              // Create comment with benchmark results
+              const comment = `## 📊 Benchmark Results
+              
+              \`\`\`
+              ${reportContent.slice(0, 2000)}${reportContent.length > 2000 ? '\n... (truncated)' : ''}
+              \`\`\`
+              
+              📁 Full results available in the workflow artifacts.`;
+              
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: comment
+              });
+            }
