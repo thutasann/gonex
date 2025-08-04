@@ -115,47 +115,48 @@ jobs:
             echo "No benchmark results were generated in this run." >> github-results/latest/README.md
           fi
             
-            # Create simple main README
-            echo "# Gonex Benchmark Results" > github-results/README.md
-            echo "" >> github-results/README.md
-            echo "Performance benchmarks for the Gonex concurrency library." >> github-results/README.md
-            echo "" >> github-results/README.md
-            echo "## 📊 Latest Results" >> github-results/README.md
-            echo "" >> github-results/README.md
-            echo "📅 **Run Date:** $(date -u)" >> github-results/README.md
-            echo "🌟 **Branch:** ${BRANCH_NAME}" >> github-results/README.md
-            echo "🔗 **Commit:** [\`${COMMIT_SHA:0:7}\`](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA})" >> github-results/README.md
-            echo "" >> github-results/README.md
-            echo "### Quick Links:" >> github-results/README.md
-            echo "- 📁 [Latest Results](./latest/)" >> github-results/README.md
-            echo "- 📈 [Historical Results](./history/)" >> github-results/README.md
-            echo "" >> github-results/README.md
+          # Create simple main README
+          echo "# Gonex Benchmark Results" > github-results/README.md
+          echo "" >> github-results/README.md
+          echo "Performance benchmarks for the Gonex concurrency library." >> github-results/README.md
+          echo "" >> github-results/README.md
+          echo "## 📊 Latest Results" >> github-results/README.md
+          echo "" >> github-results/README.md
+          echo "📅 **Run Date:** $(date -u)" >> github-results/README.md
+          echo "🌟 **Branch:** ${BRANCH_NAME}" >> github-results/README.md
+          echo "🔗 **Commit:** [\`${COMMIT_SHA:0:7}\`](https://github.com/${{ github.repository }}/commit/${COMMIT_SHA})" >> github-results/README.md
+          echo "" >> github-results/README.md
+          echo "### Quick Links:" >> github-results/README.md
+          echo "- 📁 [Latest Results](./latest/)" >> github-results/README.md
+          echo "- 📈 [Historical Results](./history/)" >> github-results/README.md
+          echo "" >> github-results/README.md
             
-            # Create history index (organized by dates)
-            echo "# Benchmark History" > github-results/history/README.md
-            echo "" >> github-results/history/README.md
-            echo "Benchmark runs organized by date:" >> github-results/history/README.md
-            echo "" >> github-results/history/README.md
+          # Create history index (organized by dates)
+          echo "# Benchmark History" > github-results/history/README.md
+          echo "" >> github-results/history/README.md
+          echo "Benchmark runs organized by date:" >> github-results/history/README.md
+          echo "" >> github-results/history/README.md
             
-            # List all date folders in reverse chronological order
-            if [ -d "github-results/history" ]; then
-              for date_dir in $(ls -1 github-results/history/ | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' | sort -r); do
-                if [ -d "github-results/history/${date_dir}" ]; then
-                  echo "## 📅 ${date_dir}" >> github-results/history/README.md
-                  echo "" >> github-results/history/README.md
-                  
-                  # List time folders for this date
-                  for time_dir in $(ls -1 github-results/history/${date_dir}/ | grep -E '^[0-9]{2}-[0-9]{2}-[0-9]{2}$' | sort -r); do
-                    if [ -d "github-results/history/${date_dir}/${time_dir}" ]; then
-                      echo "- [${time_dir} UTC](./${date_dir}/${time_dir}/)" >> github-results/history/README.md
-                    fi
-                  done
-                  echo "" >> github-results/history/README.md
-                fi
-              done
-            fi
+          # List all date folders in reverse chronological order
+          if [ -d "github-results/history" ]; then
+            for date_dir in $(ls -1 github-results/history/ | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' | sort -r); do
+              if [ -d "github-results/history/${date_dir}" ]; then
+                echo "## 📅 ${date_dir}" >> github-results/history/README.md
+                echo "" >> github-results/history/README.md
+                
+                # List time folders for this date
+                for time_dir in $(ls -1 github-results/history/${date_dir}/ | grep -E '^[0-9]{2}-[0-9]{2}-[0-9]{2}$' | sort -r); do
+                  if [ -d "github-results/history/${date_dir}/${time_dir}" ]; then
+                    echo "- [${time_dir} UTC](./${date_dir}/${time_dir}/)" >> github-results/history/README.md
+                  fi
+                done
+                echo "" >> github-results/history/README.md
+              fi
+            done
+          fi
             
-            # Create daily summary file for today's date
+          # Create daily summary file for today's date
+          if [ -d "github-results/history/${DATE_FOLDER}" ]; then
             echo "# Benchmark Results for ${DATE_FOLDER}" > github-results/history/${DATE_FOLDER}/README.md
             echo "" >> github-results/history/${DATE_FOLDER}/README.md
             echo "All benchmark runs for $(date -u -d ${DATE_FOLDER} '+%B %d, %Y'):" >> github-results/history/${DATE_FOLDER}/README.md
