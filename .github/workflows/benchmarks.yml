@@ -13,12 +13,18 @@ jobs:
   benchmarks:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/master' || github.event.inputs.branch == 'master'
+    permissions:
+      contents: write
+      pages: write
+      id-token: write
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.branch || 'master' }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
