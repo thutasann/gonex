@@ -74,21 +74,21 @@ jobs:
       - name: Prepare benchmark results for GitHub
         run: |
           # Create simple README for the results
-          echo "# Gonex Benchmark Results" > benchmarks/README.md
-          echo "" >> benchmarks/README.md
-          echo "Performance benchmarks for the Gonex concurrency library." >> benchmarks/README.md
-          echo "" >> benchmarks/README.md
-          echo "📅 **Generated:** $(date -u)" >> benchmarks/README.md
-          echo "🌟 **Branch:** ${{ github.event.inputs.branch || github.ref_name }}" >> benchmarks/README.md
-          echo "🔗 **Commit:** [\`${{ github.sha }}\`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})" >> benchmarks/README.md
-          echo "" >> benchmarks/README.md
-          echo "## 📊 Results Structure" >> benchmarks/README.md
-          echo "" >> benchmarks/README.md
-          echo "Results are organized by date and time:" >> benchmarks/README.md
-          echo "- Date folders: YYYY-MM-DD" >> benchmarks/README.md
-          echo "- Time folders: HH-MM-SS" >> benchmarks/README.md
-          echo "" >> benchmarks/README.md
-          echo "📁 [View Results](./results/)" >> benchmarks/README.md
+          echo "# Gonex Benchmark Results" > README.md
+          echo "" >> README.md
+          echo "Performance benchmarks for the Gonex concurrency library." >> README.md
+          echo "" >> README.md
+          echo "📅 **Generated:** $(date -u)" >> README.md
+          echo "🌟 **Branch:** ${{ github.event.inputs.branch || github.ref_name }}" >> README.md
+          echo "🔗 **Commit:** [\`${{ github.sha }}\`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})" >> README.md
+          echo "" >> README.md
+          echo "## 📊 Results Structure" >> README.md
+          echo "" >> README.md
+          echo "Results are organized by date and time:" >> README.md
+          echo "- Date folders: YYYY-MM-DD" >> README.md
+          echo "- Time folders: HH-MM-SS" >> README.md
+          echo "" >> README.md
+          echo "📁 [View Results](./results/)" >> README.md
 
       - name: Commit results to benchmark-results branch
         run: |
@@ -105,10 +105,10 @@ jobs:
           # Clear everything except .git
           find . -mindepth 1 -maxdepth 1 ! -name '.git' ! -name 'benchmarks' -exec rm -rf {} +
 
-          # Copy the entire benchmarks directory structure to root
-          if [ -d "benchmarks" ]; then
-            cp -r benchmarks/* .
-            echo "✅ Benchmark results copied to root"
+          # Copy only the results folder to root
+          if [ -d "benchmarks/results" ]; then
+            cp -r benchmarks/results .
+            echo "✅ Results folder copied to root"
           fi
 
           # Add and commit
@@ -117,13 +117,6 @@ jobs:
 
           # Push to benchmark-results branch
           git push origin benchmark-results
-
-      - name: Upload benchmark artifacts (backup)
-        uses: actions/upload-artifact@v4
-        with:
-          name: benchmark-results-${{ github.sha }}
-          path: benchmarks/results/
-          retention-days: 30
 
       - name: Comment with results links
         if: github.event_name == 'pull_request'
