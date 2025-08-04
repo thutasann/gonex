@@ -110,7 +110,11 @@ jobs:
           git fetch origin benchmark-results:benchmark-results 2>/dev/null || echo "Branch doesn't exist yet"
 
           # Create or checkout the branch
-          git checkout benchmark-results 2>/dev/null || git checkout -b benchmark-results
+          if git show-ref --verify --quiet refs/heads/benchmark-results; then
+            git checkout benchmark-results
+          else
+            git checkout -b benchmark-results
+          fi
 
           # Clear everything except .git and temp results
           find . -mindepth 1 -maxdepth 1 ! -name '.git' ! -name 'benchmark-results-temp' -exec rm -rf {} +
