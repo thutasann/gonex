@@ -54,6 +54,16 @@ jobs:
           echo "📁 Results structure:"
           find results/ -type f 2>/dev/null || echo "No results files found"
 
+          # Copy results to a location that won't be ignored
+          if [ -d "results" ]; then
+            echo "📂 Copying results to temp location..."
+            cp -r results ../benchmark-results-temp
+            echo "✅ Results copied to ../benchmark-results-temp"
+          else
+            echo "❌ No results directory found"
+            exit 1
+          fi
+
       - name: Display benchmark summary
         working-directory: ./benchmarks
         run: |
@@ -105,12 +115,12 @@ jobs:
           # Clear everything except .git
           find . -mindepth 1 -maxdepth 1 ! -name '.git' -exec rm -rf {} +
 
-          # Copy only the results folder to root
-          if [ -d "benchmarks/results" ]; then
-            cp -r benchmarks/results .
+          # Copy results from temp location to root
+          if [ -d "benchmark-results-temp" ]; then
+            cp -r benchmark-results-temp results
             echo "✅ Results folder copied to root"
           else
-            echo "❌ No results folder found"
+            echo "❌ No results folder found in temp location"
             exit 1
           fi
 
