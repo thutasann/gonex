@@ -17,16 +17,13 @@ import {
   initializeParallelScheduler,
   shutdownParallelScheduler,
 } from '../../../dist/index.js';
-import binary_search from '../../utils/binary_search.js';
 import heavyTask from '../../utils/heavy_task.js';
-import sort_algo_fn from '../../utils/sort_algo_fn.js';
 
 // Initialize Parallel Scheduler
 await initializeParallelScheduler({
   useWorkerThreads: true,
   threadCount: 4,
   cpuAffinity: true,
-  loadBalancing: 'least-busy',
   sharedMemory: true,
   timeout: 60000, // Increased timeout to 60 seconds
 });
@@ -79,13 +76,6 @@ go(async () => {
         },
         {
           useWorkerThreads: true,
-          args: [task],
-          dependencies: {
-            heavyTask: heavyTask,
-            sleep: sleep,
-            sort_algo_fn: sort_algo_fn,
-            binary_search: binary_search,
-          },
         }
       );
 
@@ -131,13 +121,6 @@ go(async () => {
         },
         {
           useWorkerThreads: true,
-          args: [task],
-          dependencies: {
-            heavyTask: heavyTask,
-            sleep: sleep,
-            sort_algo_fn: sort_algo_fn,
-            binary_search: binary_search,
-          },
         }
       );
 

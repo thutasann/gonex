@@ -124,8 +124,6 @@ async function benchmarkCpuIntensiveComparison() {
     async () => {
       await goAll(tasks, {
         useWorkerThreads: true,
-        args: [500000],
-        dependencies: { cpuIntensiveTask: cpuIntensiveTask },
       });
     }
   );
@@ -139,42 +137,40 @@ async function benchmarkCpuIntensiveComparison() {
 /**
  * Benchmark: goAll performance with different task counts
  */
-// async function benchmarkGoAllScaling() {
-//   const results = {};
-//   const taskCounts = [10, 50, 100, 200];
+async function benchmarkGoAllScaling() {
+  const results = {};
+  const taskCounts = [10, 50, 100, 200];
 
-//   for (const taskCount of taskCounts) {
-//     const tasks = Array.from(
-//       { length: taskCount },
-//       (_, i) => () => `task-${i}`
-//     );
+  for (const taskCount of taskCounts) {
+    const tasks = Array.from(
+      { length: taskCount },
+      (_, i) => () => `task-${i}`
+    );
 
-//     const eventLoopResult = await runBenchmark(
-//       `goAll ${taskCount} tasks (Event-Loop)`,
-//       async () => {
-//         await goAll(tasks, { useWorkerThreads: false });
-//       }
-//     );
+    const eventLoopResult = await runBenchmark(
+      `goAll ${taskCount} tasks (Event-Loop)`,
+      async () => {
+        await goAll(tasks, { useWorkerThreads: false });
+      }
+    );
 
-//     const workerThreadResult = await runBenchmark(
-//       `goAll ${taskCount} tasks (Worker-Threads)`,
-//       async () => {
-//         await goAll(tasks, {
-//           useWorkerThreads: true,
-//           args: [taskCount],
-//           dependencies: { cpuIntensiveTask: cpuIntensiveTask },
-//         });
-//       }
-//     );
+    const workerThreadResult = await runBenchmark(
+      `goAll ${taskCount} tasks (Worker-Threads)`,
+      async () => {
+        await goAll(tasks, {
+          useWorkerThreads: true,
+        });
+      }
+    );
 
-//     results[taskCount] = {
-//       eventLoop: eventLoopResult,
-//       workerThread: workerThreadResult,
-//     };
-//   }
+    results[taskCount] = {
+      eventLoop: eventLoopResult,
+      workerThread: workerThreadResult,
+    };
+  }
 
-//   return results;
-// }
+  return results;
+}
 
 /**
  * Benchmark: goRace performance
@@ -311,7 +307,6 @@ export async function runGoroutineBenchmarks() {
     useWorkerThreads: true,
     threadCount: 4,
     cpuAffinity: true,
-    loadBalancing: 'least-busy',
     sharedMemory: true,
     timeout: 60000, // Increased timeout to 60 seconds
   });
@@ -333,8 +328,8 @@ export async function runGoroutineBenchmarks() {
     results.mixedWorkload = await benchmarkMixedWorkload();
 
     // Scaling benchmarks
-    // console.log(chalk.yellow('\n📈 Scaling Benchmarks:'));
-    // results.goAllScaling = await benchmarkGoAllScaling();
+    console.log(chalk.yellow('\n📈 Scaling Benchmarks:'));
+    results.goAllScaling = await benchmarkGoAllScaling();
 
     // Memory benchmarks
     console.log(chalk.yellow('\n💾 Memory Usage Benchmarks:'));
