@@ -56,6 +56,12 @@ export type GoroutineOptions = {
   /** Use worker threads for true parallelism */
   useWorkerThreads?: boolean;
 
+  /** Arguments to pass to the function (for worker threads) */
+  args?: AnyValue[];
+
+  /** Function dependencies to pass to worker threads */
+  dependencies?: Record<string, (...args: AnyValue[]) => AnyValue>;
+
   /** Parallel execution options */
   parallel?: ParallelOptions;
 };
@@ -152,6 +158,16 @@ export async function go<T>(
     // Only add timeout if it's defined
     if (timeout !== undefined) {
       parallelOptions.timeout = timeout;
+    }
+
+    // Add args if provided
+    if (options.args) {
+      parallelOptions.args = options.args;
+    }
+
+    // Add dependencies if provided
+    if (options.dependencies) {
+      parallelOptions.dependencies = options.dependencies;
     }
 
     try {
@@ -256,6 +272,11 @@ export async function goAll<T>(
       parallelOptions.timeout = options.timeout;
     }
 
+    // Add dependencies if provided
+    if (options.dependencies) {
+      parallelOptions.dependencies = options.dependencies;
+    }
+
     return globalParallelScheduler.goAll(fns, parallelOptions);
   }
 
@@ -308,6 +329,11 @@ export async function goRace<T>(
     // Only add timeout if it's defined
     if (options.timeout !== undefined) {
       parallelOptions.timeout = options.timeout;
+    }
+
+    // Add dependencies if provided
+    if (options.dependencies) {
+      parallelOptions.dependencies = options.dependencies;
     }
 
     return globalParallelScheduler.goRace(fns, parallelOptions);

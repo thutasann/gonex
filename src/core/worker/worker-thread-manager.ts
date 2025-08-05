@@ -3,7 +3,6 @@ import { join } from 'path';
 import { Worker } from 'worker_threads';
 import { log } from '../../utils';
 import { logger } from '../../utils/logger';
-import { globalFunctionRegistry } from './function-registry';
 
 /**
  * Configuration for worker thread management
@@ -15,6 +14,8 @@ export type WorkerThreadConfig = {
   maxWorkers: number;
   /** Worker lifecycle timeout in milliseconds */
   workerTimeout: number;
+  /** Load balancing strategy */
+  loadBalancing: 'round-robin' | 'least-busy' | 'weighted';
   /** Enable dynamic worker scaling */
   autoScaling: boolean;
   /** Pin workers to CPU cores */
@@ -41,7 +42,8 @@ export type WorkerHealth = {
 export type WorkerMessage = {
   id: string;
   type: 'execute' | 'heartbeat' | 'shutdown';
-  functionId?: string; // Function ID from registry
+  fn?: string;
+  dependencies?: Record<string, string>;
   args?: AnyValue[];
   data?: AnyValue;
   timeout?: number;
@@ -91,6 +93,7 @@ export class WorkerThreadManager {
       minWorkers: 2,
       maxWorkers: 8,
       workerTimeout: 30000,
+      loadBalancing: 'least-busy',
       autoScaling: true,
       cpuAffinity: false,
       sharedMemory: true,
@@ -126,13 +129,7 @@ export class WorkerThreadManager {
     });
 
     // Set up message handling
-    worker.on('message', (message: AnyValue) => {
-      if (message.type === 'execute_function') {
-        this.handleExecuteFunction(message);
-      } else {
-        this.handleWorkerMessage(message);
-      }
-    });
+    worker.on('message', this.handleWorkerMessage.bind(this));
     worker.on('error', this.handleWorkerError.bind(this));
     worker.on('exit', this.handleWorkerExit.bind(this));
 
@@ -152,18 +149,22 @@ export class WorkerThreadManager {
    *
    * @param fn - Function to execute
    * @param timeout - Optional timeout in milliseconds
+   * @param args - Optional arguments to pass to the function
+   * @param dependencies - Optional function dependencies
    * @returns Promise that resolves with the function result
    */
-  async execute<T>(fn: () => T | Promise<T>, timeout?: number): Promise<T> {
+  async execute<T>(
+    fn: () => T | Promise<T>,
+    timeout?: number,
+    args?: AnyValue[],
+    dependencies?: Record<string, (...args: AnyValue[]) => AnyValue>
+  ): Promise<T> {
     if (this.workers.length === 0) {
       throw new Error('No worker threads available');
     }
 
     // Set logger to worker thread mode
     logger.setExecutionMode('worker-thread');
-
-    // Register the function in the global registry
-    const functionId = globalFunctionRegistry.register(fn);
 
     // Simple round-robin for maximum speed
     const worker = this.workers[this.currentWorkerIndex]!;
@@ -176,8 +177,6 @@ export class WorkerThreadManager {
       // Set up timeout
       const timeoutId = setTimeout(() => {
         this.messageHandlers.delete(messageId);
-        // Cleanup function from registry on timeout
-        globalFunctionRegistry.unregister(functionId);
         reject(
           new Error(`Worker execution timeout after ${operationTimeout}ms`)
         );
@@ -190,15 +189,310 @@ export class WorkerThreadManager {
         timeout: timeoutId,
       });
 
-      // Send message to worker with function ID
+      // Process functions and their dependencies
+      const { serializedFn, allDependencies } =
+        this.processFunctionWithDependencies(fn, dependencies);
+
+      // Send message to worker
       worker.postMessage({
         id: messageId,
         type: 'execute',
-        functionId,
-        args: [],
+        fn: serializedFn,
+        dependencies: allDependencies,
+        args: args || [],
         timeout: operationTimeout,
       });
     });
+  }
+
+  /**
+   * Process a function and its dependencies, handling compiled imports
+   *
+   * @param fn - Function to process
+   * @param explicitDependencies - Explicitly provided dependencies
+   * @returns Object containing serialized function and all dependencies
+   */
+  private processFunctionWithDependencies(
+    fn: (...args: AnyValue[]) => AnyValue,
+    explicitDependencies?: Record<string, (...args: AnyValue[]) => AnyValue>
+  ): {
+    serializedFn: string;
+    allDependencies: Record<string, string>;
+  } {
+    const allDependencies: Record<string, string> = {};
+
+    // Process explicit dependencies first
+    if (explicitDependencies) {
+      for (const [name, func] of Object.entries(explicitDependencies)) {
+        const { processedFn, additionalDeps } = this.processCompiledImports(
+          func.toString()
+        );
+        allDependencies[name] = processedFn;
+        Object.assign(allDependencies, additionalDeps);
+      }
+    }
+
+    // Process the main function
+    const { serializedFn, autoDependencies } =
+      this.serializeFunctionWithDependencies(fn);
+    Object.assign(allDependencies, autoDependencies);
+
+    return {
+      serializedFn,
+      allDependencies,
+    };
+  }
+
+  /**
+   * Process a function string to handle compiled import references
+   *
+   * @param fnString - Function string to process
+   * @returns Object containing processed function and additional dependencies
+   */
+  private processCompiledImports(fnString: string): {
+    processedFn: string;
+    additionalDeps: Record<string, string>;
+  } {
+    const additionalDeps: Record<string, string> = {};
+    let processedFn = fnString;
+
+    // Find all compiled import references like (0, module_1.functionName)
+    const compiledImportPattern = /\(0,\s*(\w+_\d+)\.(\w+)\)/g;
+    const matches = [...processedFn.matchAll(compiledImportPattern)];
+
+    for (const match of matches) {
+      const moduleName = match[1];
+      const functionName = match[2];
+
+      if (moduleName && functionName) {
+        // Try to get the actual function from the global scope
+        const actualFunction = this.extractFunctionFromGlobalScope(
+          moduleName,
+          functionName
+        );
+
+        if (actualFunction) {
+          // Replace the compiled import with the function name
+          processedFn = processedFn.replace(match[0], functionName);
+          additionalDeps[functionName] = actualFunction;
+        } else {
+          // If we can't find the function, create a fallback implementation
+          const fallbackFunction = this.createFallbackFunction(functionName);
+          if (fallbackFunction) {
+            processedFn = processedFn.replace(match[0], functionName);
+            additionalDeps[functionName] = fallbackFunction;
+          }
+        }
+      }
+    }
+
+    return {
+      processedFn,
+      additionalDeps,
+    };
+  }
+
+  /**
+   * Extract a function from the global scope by trying to resolve the compiled module reference
+   *
+   * @param moduleName - The compiled module name (e.g., utils_1)
+   * @param functionName - The function name (e.g., validateDuration)
+   * @returns Function string or null if not found
+   */
+  private extractFunctionFromGlobalScope(
+    moduleName: string,
+    functionName: string
+  ): string | null {
+    try {
+      // Try to get the module from global scope
+      const globalScope = globalThis as AnyValue;
+
+      // First, try to get the module directly
+      if (globalScope[moduleName] && globalScope[moduleName][functionName]) {
+        return globalScope[moduleName][functionName].toString();
+      }
+
+      // If that doesn't work, try to find the function in the global scope
+      if (globalScope[functionName]) {
+        return globalScope[functionName].toString();
+      }
+
+      // Try to find the module by looking for patterns like utils_1, index_1, etc.
+      const modulePattern = new RegExp(
+        `^${moduleName.replace(/\d+$/, '')}\\d*$`
+      );
+      for (const key in globalScope) {
+        if (
+          modulePattern.test(key) &&
+          globalScope[key] &&
+          globalScope[key][functionName]
+        ) {
+          return globalScope[key][functionName].toString();
+        }
+      }
+
+      return null;
+    } catch (error) {
+      // If we can't extract the function, return null
+      return null;
+    }
+  }
+
+  /**
+   * Create a fallback function implementation for common utility functions
+   *
+   * @param functionName - The function name
+   * @returns Fallback function string or null if not supported
+   */
+  private createFallbackFunction(functionName: string): string | null {
+    // Common utility functions that we can provide fallback implementations for
+    const fallbackFunctions: Record<string, string> = {
+      validateDuration: `function validateDuration(duration, name) {
+        if (typeof duration !== 'number' || duration < 0 || !isFinite(duration)) {
+          throw new Error(\`Invalid \${name}: must be a non-negative finite number\`);
+        }
+      }`,
+      validateTimeout: `function validateTimeout(timeout, name) {
+        if (typeof timeout !== 'number' || timeout < 0 || !isFinite(timeout)) {
+          throw new Error(\`Invalid \${name}: must be a non-negative finite number\`);
+        }
+      }`,
+      sleep: `function sleep(duration) {
+        if (typeof duration !== 'number' || duration < 0 || !isFinite(duration)) {
+          throw new Error('Invalid sleep duration: must be a non-negative finite number');
+        }
+        return new Promise(resolve => {
+          setTimeout(resolve, duration);
+        });
+      }`,
+      // Add more fallback functions as needed
+    };
+
+    return fallbackFunctions[functionName] || null;
+  }
+
+  /**
+   * Serialize a function for worker thread execution with dependencies
+   *
+   * @param fn - Function to serialize
+   * @returns Object containing serialized function and dependencies
+   */
+  private serializeFunctionWithDependencies(
+    fn: (...args: AnyValue[]) => AnyValue
+  ): {
+    serializedFn: string;
+    autoDependencies: Record<string, string>;
+  } {
+    const fnString = fn.toString();
+    const autoDependencies: Record<string, string> = {};
+
+    // Extract the function body more robustly
+    // Handle patterns like: async (/** @type {any} */ data) => { ... }
+    const bodyMatch = fnString.match(/=>\s*\{([\s\S]*)\}$/);
+
+    if (bodyMatch && bodyMatch[1]) {
+      const functionBody = bodyMatch[1].trim();
+
+      // Look for function calls in the body that might be external dependencies
+      // This is a simple heuristic - we'll look for common patterns
+      const functionCalls = functionBody.match(/\b(\w+)\s*\(/g);
+      if (functionCalls) {
+        for (const call of functionCalls) {
+          const funcName = call.replace(/\s*\($/, '');
+
+          // Skip common built-in functions and variables
+          const skipList = [
+            'console',
+            'setTimeout',
+            'setInterval',
+            'clearTimeout',
+            'clearInterval',
+            'Math',
+            'JSON',
+            'Array',
+            'Object',
+            'String',
+            'Number',
+            'Boolean',
+            'Date',
+            'RegExp',
+            'Error',
+            'Promise',
+            'async',
+            'await',
+            'return',
+            'if',
+            'else',
+            'for',
+            'while',
+            'do',
+            'switch',
+            'case',
+            'default',
+            'try',
+            'catch',
+            'finally',
+            'throw',
+            'new',
+            'typeof',
+            'instanceof',
+            'delete',
+            'void',
+            'in',
+            'of',
+            'yield',
+            'let',
+            'const',
+            'var',
+            'function',
+            'class',
+            'extends',
+            'super',
+            'this',
+            'arguments',
+            'data',
+            'result',
+            'error',
+            'i',
+            'j',
+            'k',
+            'x',
+            'y',
+            'z',
+          ];
+
+          if (!skipList.includes(funcName) && !autoDependencies[funcName]) {
+            // Try to get the function from the current scope first
+            try {
+              // Check if the function is available in the current scope
+              const currentScope = globalThis as AnyValue;
+              if (typeof currentScope[funcName] === 'function') {
+                autoDependencies[funcName] = currentScope[funcName].toString();
+              }
+            } catch {
+              // Function not found in current scope, skip it
+            }
+          }
+        }
+      }
+
+      // Create a simple async function that takes a single parameter
+      // This avoids complex parameter parsing issues
+      const result = `async function(data) {
+        ${functionBody}
+      }`;
+
+      return {
+        serializedFn: result,
+        autoDependencies,
+      };
+    }
+
+    // Fallback to original function if parsing fails
+    return {
+      serializedFn: fnString,
+      autoDependencies: {},
+    };
   }
 
   /**
@@ -231,48 +525,6 @@ export class WorkerThreadManager {
       handler.resolve(message.result);
     } else {
       handler.reject(new Error(message.error));
-    }
-  }
-
-  /**
-   * Handle execute_function requests from workers
-   *
-   * @param message - Message from worker
-   */
-  private async handleExecuteFunction(message: AnyValue): Promise<void> {
-    const handler = this.messageHandlers.get(message.id);
-    if (!handler) {
-      return; // Message already handled or timed out
-    }
-
-    try {
-      // Execute the function from the registry
-      const result = await globalFunctionRegistry.execute(
-        message.functionId,
-        message.args || []
-      );
-
-      // Cleanup function from registry
-      globalFunctionRegistry.unregister(message.functionId);
-
-      // Send success response
-      this.handleWorkerMessage({
-        id: message.id,
-        success: true,
-        result,
-        workerId: message.workerId,
-      });
-    } catch (error) {
-      // Cleanup function from registry on error
-      globalFunctionRegistry.unregister(message.functionId);
-
-      // Send error response
-      this.handleWorkerMessage({
-        id: message.id,
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-        workerId: message.workerId,
-      });
     }
   }
 
