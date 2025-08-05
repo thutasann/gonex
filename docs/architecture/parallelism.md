@@ -471,7 +471,6 @@ const result = await goParallel(() => expensiveComputation(), {
   threadCount: 'auto', // Use all CPU cores
   sharedMemory: true, // Use shared memory
   cpuAffinity: true, // Pin to specific cores
-  loadBalancing: 'least-busy', // Intelligent load balancing
 });
 ```
 

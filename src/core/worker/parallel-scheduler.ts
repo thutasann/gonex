@@ -1,7 +1,6 @@
 import os from 'os';
 import { DEFAULT_TIMEOUT, log, validateTimeout } from '../../utils';
 import { logger } from '../../utils/logger';
-import { LoadBalancingStrategy } from './load-balancer';
 import { WorkerThreadManager } from './worker-thread-manager';
 
 /**
@@ -14,16 +13,10 @@ export type ParallelOptions = {
   threadCount?: number | 'auto';
   /** CPU affinity for worker threads */
   cpuAffinity?: boolean;
-  /** Load balancing strategy */
-  loadBalancing?: LoadBalancingStrategy;
   /** Enable shared memory */
   sharedMemory?: boolean;
   /** Timeout for worker execution */
   timeout?: number;
-  /** Arguments to pass to the function (for worker threads) */
-  args?: AnyValue[];
-  /** Function dependencies to pass to worker threads */
-  dependencies?: Record<string, (...args: AnyValue[]) => AnyValue>;
 };
 
 /** available cpus  */
@@ -48,7 +41,6 @@ export class ParallelScheduler {
       useWorkerThreads: false, // Default to single-threaded for backward compatibility
       threadCount: 'auto',
       cpuAffinity: false,
-      loadBalancing: 'least-busy',
       sharedMemory: true,
       timeout: DEFAULT_TIMEOUT,
       ...defaultOptions,
@@ -77,7 +69,6 @@ export class ParallelScheduler {
         minWorkers: threadCount || 2,
         maxWorkers: threadCount || 8,
         workerTimeout: config.timeout || 30000,
-        loadBalancing: config.loadBalancing || 'round-robin',
         autoScaling: true,
         cpuAffinity: config.cpuAffinity || false,
         sharedMemory: config.sharedMemory || true,
@@ -101,7 +92,7 @@ export class ParallelScheduler {
    */
   async go<T>(
     fn: () => T | Promise<T>,
-    options: ParallelOptions & { args?: AnyValue[] } = {}
+    options: ParallelOptions = {}
   ): Promise<T> {
     const config = { ...this.defaultOptions, ...options };
 
@@ -113,12 +104,7 @@ export class ParallelScheduler {
     // Use worker threads if enabled
     if (config.useWorkerThreads && this.workerThreadManager) {
       logger.setExecutionMode('worker-thread');
-      return this.workerThreadManager.execute(
-        fn,
-        config.timeout,
-        config.args,
-        config.dependencies
-      );
+      return this.workerThreadManager.execute(fn, config.timeout);
     }
 
     // Fallback to single-threaded execution
