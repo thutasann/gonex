@@ -18,6 +18,7 @@ initializeParallelScheduler({
   useWorkerThreads: true,
   threadCount: 4,
   cpuAffinity: true,
+  loadBalancing: 'least-busy',
   sharedMemory: true,
   timeout: 30000,
 }).then(async () => {
