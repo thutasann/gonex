@@ -51,7 +51,10 @@ const cpuResults = await goAll(
       return result;
     },
   ],
-  { useWorkerThreads: true }
+  [],
+  {
+    useWorkerThreads: true,
+  }
 );
 const cpuEndTime = Date.now();
 console.log('CPU-bound tasks (Worker Threads):', cpuResults);

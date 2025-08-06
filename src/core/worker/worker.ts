@@ -1,61 +1,195 @@
 /* eslint-disable no-case-declarations */
 import { parentPort, workerData } from 'worker_threads';
 
+/**
+ * Deserialize functions from the context
+ */
+function deserializeFunctions(
+  variables: Record<string, AnyValue>
+): Record<string, AnyValue> {
+  const deserialized: Record<string, AnyValue> = {};
+
+  for (const [key, value] of Object.entries(variables)) {
+    if (typeof value === 'object' && value !== null && 'wasType' in value) {
+      if (value.wasType === 'function') {
+        // Create the function from its string representation
+        try {
+          const func = new Function(`return ${value.value}`)();
+          deserialized[key] = func;
+        } catch (error) {
+          console.warn(`Failed to deserialize function ${key}:`, error);
+        }
+      } else {
+        deserialized[key] = value;
+      }
+    } else {
+      deserialized[key] = value;
+    }
+  }
+
+  return deserialized;
+}
+
 // Worker thread implementation
 if (parentPort) {
+  // Initialize global scope for worker
+  const globalScope = globalThis as AnyValue;
+
+  // Ensure essential globals are available
+  if (typeof Promise === 'undefined') {
+    globalScope.Promise = Promise;
+  }
+  if (typeof setTimeout === 'undefined') {
+    globalScope.setTimeout = setTimeout;
+  }
+  if (typeof clearTimeout === 'undefined') {
+    globalScope.clearTimeout = clearTimeout;
+  }
+  if (typeof console === 'undefined') {
+    globalScope.console = console;
+  }
+
+  // Store the user function and context
+  let userFunction: string | null = null;
+  let context: Record<string, AnyValue> = {};
+
   parentPort?.on('message', async (message: AnyValue) => {
     try {
       switch (message.type) {
-        case 'execute':
-          // Get the first argument
-          const firstArg =
-            message.args && message.args.length > 0
-              ? message.args[0]
-              : undefined;
+        case 'init':
+          // Initialize the worker with function and context
+          const { functionCode, variables, dependencies } = message;
 
-          // Set up dependencies if provided
-          if (message.dependencies) {
-            for (const [funcName, funcString] of Object.entries(
-              message.dependencies
-            )) {
+          if (!functionCode) {
+            throw new Error('No function code provided');
+          }
+
+          // Store the user function
+          userFunction = functionCode;
+
+          // Set up dependencies in worker scope
+          if (dependencies && typeof dependencies === 'object') {
+            for (const [name, code] of Object.entries(dependencies)) {
               try {
-                // Create the function in the worker context
-                const func = new Function(`return ${funcString}`)();
-                (globalThis as AnyValue)[funcName] = func;
+                // Create the dependency function in the worker context
+                const func = new Function(`return ${code}`)();
+                globalScope[name] = func;
               } catch (error) {
-                console.warn(`Failed to create dependency ${funcName}:`, error);
+                console.warn(`Failed to create dependency ${name}:`, error);
               }
             }
           }
 
-          // Execute the function using Function constructor with parameter
-          const fn = new Function('data', `return (${message.fn})(data)`);
-          const result = await fn(firstArg);
+          // Set up variables in context and deserialize functions
+          if (variables && typeof variables === 'object') {
+            context = deserializeFunctions(variables);
+            // Make context available in global scope
+            Object.assign(globalScope, context);
+          }
 
           parentPort?.postMessage({
             id: message.id,
             success: true,
-            result,
-            workerId: workerData.workerId,
+            workerId: workerData?.workerId || 0,
           });
+          break;
+
+        case 'execute':
+          // Execute the function with arguments
+          const {
+            args,
+            invocationId,
+            dependencies: additionalDependencies,
+          } = message;
+
+          if (!userFunction) {
+            throw new Error('Worker not initialized with function');
+          }
+
+          try {
+            // Set up additional dependencies if provided
+            if (
+              additionalDependencies &&
+              typeof additionalDependencies === 'object'
+            ) {
+              for (const [name, code] of Object.entries(
+                additionalDependencies
+              )) {
+                try {
+                  // Create the dependency function in the worker context
+                  const func = new Function(`return ${code}`)();
+                  globalScope[name] = func;
+                } catch (error) {
+                  console.warn(
+                    `Failed to create additional dependency ${name}:`,
+                    error
+                  );
+                }
+              }
+            }
+
+            // Create the execution environment
+            const executionCode = `
+              (async function(...args) {
+                // Ensure essential globals are available
+                var Promise = globalThis.Promise || Promise;
+                var setTimeout = globalThis.setTimeout || setTimeout;
+                var clearTimeout = globalThis.clearTimeout || clearTimeout;
+                var console = globalThis.console || console;
+                
+                // Resolve function arguments
+                const resolvedArgs = args.map(arg => {
+                  if (typeof arg === 'string' && arg.startsWith('arg_func_') && globalThis[arg]) {
+                    return globalThis[arg];
+                  }
+                  return arg;
+                });
+                
+                // Create the user function
+                ${userFunction}
+                
+                // Execute the function with the resolved arguments
+                return await fn(...resolvedArgs);
+              })
+            `;
+
+            const fn = eval(executionCode);
+            const result = await fn(...(args || []));
+
+            parentPort?.postMessage({
+              id: message.id,
+              success: true,
+              result,
+              invocationId,
+              workerId: workerData?.workerId || 0,
+            });
+          } catch (error) {
+            console.error('Worker: Error executing function:', error);
+
+            parentPort?.postMessage({
+              id: message.id,
+              success: false,
+              error: (error as Error).message,
+              invocationId,
+              workerId: workerData?.workerId || 0,
+            });
+          }
           break;
 
         case 'heartbeat':
           parentPort?.postMessage({
             id: message.id,
             success: true,
-            workerId: workerData.workerId,
+            workerId: workerData?.workerId || 0,
           });
           break;
 
         case 'shutdown':
-          // Send confirmation before exiting
           parentPort?.postMessage({
             id: message.id,
             success: true,
-            workerId: workerData.workerId,
+            workerId: workerData?.workerId || 0,
           });
-          // Exit after a small delay to ensure message is sent
           setTimeout(() => {
             process.exit(0);
           }, 100);
@@ -69,7 +203,7 @@ if (parentPort) {
         id: message.id,
         success: false,
         error: (error as Error).message,
-        workerId: workerData.workerId,
+        workerId: workerData?.workerId || 0,
       });
     }
   });
