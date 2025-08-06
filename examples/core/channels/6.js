@@ -17,7 +17,6 @@ import {
   initializeParallelScheduler,
   shutdownParallelScheduler,
 } from '../../../dist/index.js';
-import heavyTask from '../../utils/heavy_task.js';
 
 // Initialize Parallel Scheduler
 await initializeParallelScheduler({
@@ -28,6 +27,17 @@ await initializeParallelScheduler({
   sharedMemory: true,
   timeout: 60000, // Increased timeout to 60 seconds
 });
+
+const heavyTask = async data => {
+  let result = 0;
+  for (let i = 0; i < 10; i++) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+    for (let j = 0; j < 1000; j++) {
+      result += Math.sqrt(j) * Math.pow(j, 0.1);
+    }
+  }
+  return { taskId: data.id, result: result.toFixed(2) };
+};
 
 // Multi-Thread Goroutines with Channel Communication:
 const taskChannel = channel({
@@ -72,10 +82,10 @@ go(async () => {
 
       // Use worker thread for CPU-intensive work with task data passed as parameter
       const result = await go(
-        async (/** @type {any} */ data) => {
-          return await heavyTask(data);
+        async (taskData, heavyTaskFn) => {
+          return await heavyTaskFn(taskData);
         },
-        [heavyTask],
+        [task, heavyTask],
         {
           useWorkerThreads: true,
         }
@@ -118,10 +128,10 @@ go(async () => {
 
       // Use worker thread for CPU-intensive work with task data passed as parameter
       const result = await go(
-        async (/** @type {any} */ data) => {
-          return await heavyTask(data);
+        async (taskData, heavyTaskFn) => {
+          return await heavyTaskFn(taskData);
         },
-        [task],
+        [task, heavyTask],
         {
           useWorkerThreads: true,
         }

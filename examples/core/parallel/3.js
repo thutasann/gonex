@@ -5,9 +5,8 @@ import sort_algorithms from '../../utils/sort_algos.js';
 // Example 3: Race condition with parallel execution
 console.log('3. Race condition with parallel execution:');
 
-const fastestResult = await goRace(sort_algorithms, {
+const fastestResult = await goRace(sort_algorithms, [], {
   useWorkerThreads: true,
-  parallel: { threadCount: 3 },
 });
 
 console.log('Fastest algorithm result:', fastestResult);

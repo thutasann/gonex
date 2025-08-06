@@ -27,9 +27,8 @@ await initializeParallelScheduler({
 });
 
 const workerStart = Date.now();
-await goAll(heavyWorkerThreadTasks, {
+await goAll(heavyWorkerThreadTasks, [], {
   useWorkerThreads: true,
-  parallel: { threadCount: 4 },
 });
 const workerTime = Date.now() - workerStart;
 console.log(`   Time: ${workerTime}ms`);

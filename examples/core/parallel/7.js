@@ -8,7 +8,7 @@ import heavyWorkerThreadTasks from '../../utils/heavy_worker_thread_tasks.js';
 
 // === Event-loop execution (single-threaded) ===
 const eventLoopStartTime = Date.now();
-await goAll(heavyWorkerThreadTasks, {
+await goAll(heavyWorkerThreadTasks, [], {
   useWorkerThreads: false,
 });
 const eventLoopEndTime = Date.now();
@@ -23,7 +23,7 @@ await initializeParallelScheduler({
   sharedMemory: true,
   timeout: 30000,
 });
-await goAll(heavyWorkerThreadTasks, {
+await goAll(heavyWorkerThreadTasks, [], {
   useWorkerThreads: true,
 });
 const parallelEndTime = Date.now();

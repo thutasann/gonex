@@ -23,9 +23,8 @@ initializeParallelScheduler({
   timeout: 30000,
 }).then(async () => {
   const startTime = Date.now();
-  const workerThreadResults = await goAll(heavyWorkerThreadTasks, {
+  const workerThreadResults = await goAll(heavyWorkerThreadTasks, [], {
     useWorkerThreads: true,
-    parallel: { threadCount: 4 },
   });
   const endTime = Date.now();
 

@@ -20,9 +20,9 @@ const parallelResult = await go(
     }
     return `heavy result: ${sum}`;
   },
+  [],
   {
     useWorkerThreads: true,
-    parallel: { threadCount: 2 },
   }
 );
 
