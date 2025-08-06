@@ -3,7 +3,6 @@ import { join } from 'path';
 import { Worker } from 'worker_threads';
 import { log } from '../../utils';
 import { logger } from '../../utils/logger';
-import { FunctionRegistry, getFunctionRegistry } from './function-registry';
 
 /**
  * Configuration for worker thread management
@@ -42,12 +41,13 @@ export type WorkerHealth = {
  */
 export type WorkerMessage = {
   id: string;
-  type: 'execute' | 'heartbeat' | 'shutdown' | 'register_function';
-  functionId?: string;
-  data?: AnyValue;
-  timeout?: number;
-  serializedFn?: string;
+  type: 'init' | 'execute' | 'heartbeat' | 'shutdown';
+  functionCode?: string;
+  variables?: Record<string, AnyValue>;
   dependencies?: Record<string, string>;
+  args?: AnyValue[];
+  invocationId?: number;
+  timeout?: number;
 };
 
 /**
@@ -58,6 +58,7 @@ export type WorkerResponse = {
   success: boolean;
   result?: AnyValue;
   error?: string;
+  invocationId?: number;
   workerId: number;
 };
 
@@ -88,7 +89,8 @@ export class WorkerThreadManager {
   private isShuttingDown = false;
   private healthMonitoringInterval: NodeJS.Timeout | null = null;
   private currentWorkerIndex = 0;
-  private functionRegistry: FunctionRegistry;
+  private invocationCount = 0;
+  private isInitialized = false;
 
   constructor(config: Partial<WorkerThreadConfig> = {}) {
     this.config = {
@@ -101,7 +103,6 @@ export class WorkerThreadManager {
       sharedMemory: true,
       ...config,
     };
-    this.functionRegistry = getFunctionRegistry();
   }
 
   /**
@@ -115,9 +116,6 @@ export class WorkerThreadManager {
     if (this.isShuttingDown) {
       throw new Error('WorkerThreadManager is shutting down');
     }
-
-    // Initialize the function registry
-    await this.functionRegistry.initialize();
 
     for (let i = 0; i < numWorkers; i++) {
       await this.createWorker(i);
@@ -139,9 +137,6 @@ export class WorkerThreadManager {
     worker.on('error', this.handleWorkerError.bind(this));
     worker.on('exit', this.handleWorkerExit.bind(this));
 
-    // Initialize the function registry in the worker
-    await this.initializeWorkerRegistry(worker);
-
     this.workers.push(worker);
     this.workerHealth.set(workerId, {
       workerId,
@@ -154,99 +149,42 @@ export class WorkerThreadManager {
   }
 
   /**
-   * Initialize the function registry in a worker thread
+   * Initialize workers with a function
    *
-   * @param worker - Worker thread to initialize
+   * @param fn - Function to initialize workers with
+   * @param context - Context variables to pass to workers
    */
-  private async initializeWorkerRegistry(worker: Worker): Promise<void> {
-    // Send all registered functions to the worker
-    const entries = this.functionRegistry.getAllEntries();
-
-    // If no entries, just return (registry might be empty initially)
-    if (!entries || entries.length === 0) {
+  async initializeWorkers<T>(
+    fn: (...args: AnyValue[]) => T | Promise<T>,
+    context: Record<string, AnyValue> = {}
+  ): Promise<void> {
+    if (this.isInitialized) {
       return;
     }
 
-    for (const entry of entries) {
-      const messageId = this.generateMessageId();
+    // Serialize the function
+    const { functionCode, dependencies } = this.serializeFunction(fn);
 
-      await new Promise<void>((resolve, reject) => {
-        const timeoutId = setTimeout(() => {
-          reject(new Error('Worker registry initialization timeout'));
-        }, 5000);
-
-        const handler = (message: AnyValue) => {
-          if (message.id === messageId && message.success) {
-            clearTimeout(timeoutId);
-            worker.off('message', handler);
-            resolve();
-          }
-        };
-
-        worker.on('message', handler);
-
-        worker.postMessage({
-          id: messageId,
-          type: 'register_function',
-          functionId: entry.metadata.id,
-          serializedFn: entry.serializedFn,
-          dependencies: entry.dependencies,
-        });
-      });
-    }
-  }
-
-  /**
-   * Register a function in the function registry
-   *
-   * @param fn - Function to register
-   * @returns Function ID
-   */
-  private async registerFunction<T>(fn: () => T | Promise<T>): Promise<string> {
-    const functionId = `fn_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-
-    this.functionRegistry.register({
-      id: functionId,
-      name: `worker_function_${functionId}`,
-      fn: fn as (...args: AnyValue[]) => AnyValue,
-      description: 'Worker thread function',
-    });
-
-    // Register the function in all worker threads
-    await this.registerFunctionInWorkers(functionId);
-
-    return functionId;
-  }
-
-  /**
-   * Register a function in all worker threads
-   *
-   * @param functionId - Function ID to register
-   */
-  private async registerFunctionInWorkers(functionId: string): Promise<void> {
-    const entry = this.functionRegistry.get(functionId);
-    if (!entry) {
-      throw new Error(`Function with ID '${functionId}' not found in registry`);
-    }
-
-    // If no workers, just return
-    if (this.workers.length === 0) {
-      return;
-    }
-
-    const promises = this.workers.map(async worker => {
+    // Initialize all workers with the function
+    const initPromises = this.workers.map(async worker => {
       const messageId = this.generateMessageId();
 
       return new Promise<void>((resolve, reject) => {
         const timeoutId = setTimeout(() => {
-          reject(new Error('Worker function registration timeout'));
-        }, 5000);
+          reject(new Error('Worker initialization timeout'));
+        }, 10000);
 
         const handler = (message: AnyValue) => {
-          if (message.id === messageId && message.success) {
+          if (message.id === messageId) {
             clearTimeout(timeoutId);
             worker.off('message', handler);
-            resolve();
+            if (message.success) {
+              resolve();
+            } else {
+              reject(
+                new Error(message.error || 'Worker initialization failed')
+              );
+            }
           }
         };
 
@@ -254,25 +192,183 @@ export class WorkerThreadManager {
 
         worker.postMessage({
           id: messageId,
-          type: 'register_function',
-          functionId: entry.metadata.id,
-          serializedFn: entry.serializedFn,
-          dependencies: entry.dependencies,
+          type: 'init',
+          functionCode,
+          variables: context,
+          dependencies,
         });
       });
     });
 
-    await Promise.all(promises);
+    await Promise.all(initPromises);
+    this.isInitialized = true;
+  }
+
+  /**
+   * Serialize a function for worker thread execution
+   *
+   * @param fn - Function to serialize
+   * @returns Object containing serialized function and dependencies
+   */
+  private serializeFunction(fn: (...args: AnyValue[]) => AnyValue): {
+    functionCode: string;
+    dependencies: Record<string, string>;
+  } {
+    const fnString = fn.toString();
+    const dependencies: Record<string, string> = {};
+
+    // Extract function calls from the function body
+    const functionCalls = this.extractFunctionCalls(fnString);
+
+    // Add dependencies for each function call
+    for (const funcName of functionCalls) {
+      if (!this.isGlobalFunction(funcName)) {
+        // Try to get the function from the current scope
+        const currentScope = globalThis as AnyValue;
+        if (typeof currentScope[funcName] === 'function') {
+          dependencies[funcName] = currentScope[funcName].toString();
+        }
+      }
+    }
+
+    // Create the function code
+    const functionCode = `
+      const fn = ${fnString};
+    `;
+
+    return {
+      functionCode,
+      dependencies,
+    };
+  }
+
+  /**
+   * Extract function calls from a function string
+   *
+   * @param fnString - Function string to analyze
+   * @returns Array of function names called in the function
+   */
+  private extractFunctionCalls(fnString: string): string[] {
+    const functionCalls: string[] = [];
+    const skipList = [
+      'console',
+      'setTimeout',
+      'setInterval',
+      'clearTimeout',
+      'clearInterval',
+      'Math',
+      'JSON',
+      'Array',
+      'Object',
+      'String',
+      'Number',
+      'Boolean',
+      'Date',
+      'RegExp',
+      'Error',
+      'Promise',
+      'async',
+      'await',
+      'return',
+      'if',
+      'else',
+      'for',
+      'while',
+      'do',
+      'switch',
+      'case',
+      'default',
+      'try',
+      'catch',
+      'finally',
+      'throw',
+      'new',
+      'typeof',
+      'instanceof',
+      'delete',
+      'void',
+      'in',
+      'of',
+      'yield',
+      'let',
+      'const',
+      'var',
+      'function',
+      'class',
+      'extends',
+      'super',
+      'this',
+      'arguments',
+      'data',
+      'result',
+      'error',
+      'i',
+      'j',
+      'k',
+      'x',
+      'y',
+      'z',
+    ];
+
+    // Find function calls using regex
+    const callPattern = /\b(\w+)\s*\(/g;
+    const matches = [...fnString.matchAll(callPattern)];
+
+    for (const match of matches) {
+      const funcName = match[1];
+      if (
+        funcName &&
+        !skipList.includes(funcName) &&
+        !functionCalls.includes(funcName)
+      ) {
+        functionCalls.push(funcName);
+      }
+    }
+
+    return functionCalls;
+  }
+
+  /**
+   * Check if a function is a global function
+   *
+   * @param funcName - Function name to check
+   * @returns Whether the function is global
+   */
+  private isGlobalFunction(funcName: string): boolean {
+    const globalFunctions = [
+      'console',
+      'setTimeout',
+      'setInterval',
+      'clearTimeout',
+      'clearInterval',
+      'Math',
+      'JSON',
+      'Array',
+      'Object',
+      'String',
+      'Number',
+      'Boolean',
+      'Date',
+      'RegExp',
+      'Error',
+      'Promise',
+    ];
+    return globalFunctions.includes(funcName);
   }
 
   /**
    * Execute a function on a worker thread
    *
    * @param fn - Function to execute
+   * @param args - Arguments to pass to the function
    * @param timeout - Optional timeout in milliseconds
    * @returns Promise that resolves with the function result
    */
-  async execute<T>(fn: () => T | Promise<T>, timeout?: number): Promise<T> {
+  async execute<T>(
+    fn: (...args: AnyValue[]) => T | Promise<T>,
+    args: AnyValue[] = [],
+    timeout?: number
+  ): Promise<T> {
     if (this.workers.length === 0) {
       throw new Error('No worker threads available');
     }
@@ -280,14 +376,17 @@ export class WorkerThreadManager {
     // Set logger to worker thread mode
     logger.setExecutionMode('worker-thread');
 
-    // Register the function in the registry
-    const functionId = await this.registerFunction(fn);
+    // Initialize workers if not already done
+    if (!this.isInitialized) {
+      await this.initializeWorkers(fn);
+    }
 
     // Simple round-robin for maximum speed
     const worker = this.workers[this.currentWorkerIndex]!;
     this.currentWorkerIndex =
       (this.currentWorkerIndex + 1) % this.workers.length;
     const messageId = this.generateMessageId();
+    const invocationId = this.invocationCount++;
     const operationTimeout = timeout ?? this.config.workerTimeout;
 
     return new Promise<T>((resolve, reject) => {
@@ -306,11 +405,12 @@ export class WorkerThreadManager {
         timeout: timeoutId,
       });
 
-      // Send message to worker with function ID
+      // Send message to worker
       worker.postMessage({
         id: messageId,
         type: 'execute',
-        functionId,
+        args,
+        invocationId,
         timeout: operationTimeout,
       });
     });
@@ -469,6 +569,7 @@ export class WorkerThreadManager {
     this.workers = [];
     this.workerHealth.clear();
     this.messageHandlers.clear();
+    this.isInitialized = false;
 
     log.worker('All worker threads shutdown complete');
   }

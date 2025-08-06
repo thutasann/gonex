@@ -96,7 +96,8 @@ export class ParallelScheduler {
    * @returns Promise that resolves with the function result
    */
   async go<T>(
-    fn: () => T | Promise<T>,
+    fn: (...args: AnyValue[]) => T | Promise<T>,
+    args: AnyValue[] = [],
     options: ParallelOptions = {}
   ): Promise<T> {
     const config = { ...this.defaultOptions, ...options };
@@ -109,26 +110,29 @@ export class ParallelScheduler {
     // Use worker threads if enabled
     if (config.useWorkerThreads && this.workerThreadManager) {
       logger.setExecutionMode('worker-thread');
-      return this.workerThreadManager.execute(fn, config.timeout);
+      return this.workerThreadManager.execute(fn, args, config.timeout);
     }
 
     // Fallback to single-threaded execution
     logger.setExecutionMode('event-loop');
-    return this.executeSingleThreaded(fn);
+    return this.executeSingleThreaded(fn, args);
   }
 
   /**
    * Execute function in single-threaded mode (current implementation)
    *
    * @param fn - Function to execute
-   * @param options - Execution options
+   * @param args - Arguments to pass to the function
    * @returns Promise that resolves with the function result
    */
-  private async executeSingleThreaded<T>(fn: () => T | Promise<T>): Promise<T> {
+  private async executeSingleThreaded<T>(
+    fn: (...args: AnyValue[]) => T | Promise<T>,
+    args: AnyValue[] = []
+  ): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       setImmediate(async () => {
         try {
-          const result = fn();
+          const result = fn(...args);
           if (result instanceof Promise) {
             resolve(await result);
           } else {
@@ -149,10 +153,13 @@ export class ParallelScheduler {
    * @returns Promise that resolves with array of results
    */
   async goAll<T>(
-    fns: Array<() => T | Promise<T>>,
+    fns: Array<(...args: AnyValue[]) => T | Promise<T>>,
+    argsArray: AnyValue[][] = [],
     options: ParallelOptions = {}
   ): Promise<T[]> {
-    const promises = fns.map(fn => this.go(fn, options));
+    const promises = fns.map((fn, index) =>
+      this.go(fn, argsArray[index] || [], options)
+    );
     return Promise.all(promises);
   }
 
@@ -164,10 +171,13 @@ export class ParallelScheduler {
    * @returns Promise that resolves with the first result
    */
   async goRace<T>(
-    fns: Array<() => T | Promise<T>>,
+    fns: Array<(...args: AnyValue[]) => T | Promise<T>>,
+    argsArray: AnyValue[][] = [],
     options: ParallelOptions = {}
   ): Promise<T> {
-    const promises = fns.map(fn => this.go(fn, options));
+    const promises = fns.map((fn, index) =>
+      this.go(fn, argsArray[index] || [], options)
+    );
     return Promise.race(promises);
   }
 

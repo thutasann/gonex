@@ -3,135 +3,113 @@ import { parentPort, workerData } from 'worker_threads';
 
 // Worker thread implementation
 if (parentPort) {
-  // Initialize function registry in worker
-  (globalThis as AnyValue).functionRegistry = new Map();
+  // Initialize global scope for worker
+  const globalScope = globalThis as AnyValue;
 
-  // Ensure global constructors are available
-  if (typeof Array === 'undefined') {
-    (globalThis as AnyValue).Array = Array;
-  }
-  if (typeof Object === 'undefined') {
-    (globalThis as AnyValue).Object = Object;
-  }
+  // Ensure essential globals are available
   if (typeof Promise === 'undefined') {
-    (globalThis as AnyValue).Promise = Promise;
+    globalScope.Promise = Promise;
   }
   if (typeof setTimeout === 'undefined') {
-    (globalThis as AnyValue).setTimeout = setTimeout;
+    globalScope.setTimeout = setTimeout;
   }
   if (typeof clearTimeout === 'undefined') {
-    (globalThis as AnyValue).clearTimeout = clearTimeout;
+    globalScope.clearTimeout = clearTimeout;
   }
+  if (typeof console === 'undefined') {
+    globalScope.console = console;
+  }
+
+  // Store the user function and context
+  let userFunction: string | null = null;
+  let context: Record<string, AnyValue> = {};
 
   parentPort?.on('message', async (message: AnyValue) => {
     try {
       switch (message.type) {
-        case 'register_function':
-          // Register a function in the worker's registry
-          const registry = (globalThis as AnyValue).functionRegistry;
-          registry.set(message.functionId, {
-            serializedFn: message.serializedFn,
-            dependencies: message.dependencies,
-          });
+        case 'init':
+          // Initialize the worker with function and context
+          const { functionCode, variables, dependencies } = message;
+
+          if (!functionCode) {
+            throw new Error('No function code provided');
+          }
+
+          // Store the user function
+          userFunction = functionCode;
+
+          // Set up dependencies in worker scope
+          if (dependencies && typeof dependencies === 'object') {
+            for (const [name, code] of Object.entries(dependencies)) {
+              try {
+                // Create the dependency function in the worker context
+                const func = new Function(`return ${code}`)();
+                globalScope[name] = func;
+              } catch (error) {
+                console.warn(`Failed to create dependency ${name}:`, error);
+              }
+            }
+          }
+
+          // Set up variables in context
+          if (variables && typeof variables === 'object') {
+            context = { ...variables };
+          }
 
           parentPort?.postMessage({
             id: message.id,
             success: true,
-            workerId: workerData.workerId,
+            workerId: workerData?.workerId || 0,
           });
           break;
 
         case 'execute':
-          // Get function from registry
-          const functionId = message.functionId;
-          if (!functionId) {
-            throw new Error('No function ID provided');
+          // Execute the function with arguments
+          const { args, invocationId } = message;
+
+          if (!userFunction) {
+            throw new Error('Worker not initialized with function');
           }
 
-          // Get function from the worker's registry
-          const workerRegistry = (globalThis as AnyValue).functionRegistry;
-          if (!workerRegistry) {
-            throw new Error('Function registry not available in worker');
-          }
-
-          const entry = workerRegistry.get(functionId);
-          if (!entry) {
-            throw new Error(
-              `Function with ID '${functionId}' not found in registry`
-            );
-          }
-
-          // Set up dependencies
-          if (
-            entry.dependencies &&
-            typeof entry.dependencies === 'object' &&
-            entry.dependencies !== null &&
-            entry.dependencies.constructor !== Array
-          ) {
-            try {
-              // Use a more robust approach to iterate over dependencies
-              const dependencyNames = [];
-              for (const key in entry.dependencies) {
-                dependencyNames.push(key);
-              }
-
-              for (const funcName of dependencyNames) {
-                try {
-                  const funcString = entry.dependencies[funcName];
-                  // Create the function in the worker context
-                  const func = new Function(`return ${funcString}`)();
-                  (globalThis as AnyValue)[funcName] = func;
-                } catch (error) {
-                  console.warn(
-                    `Failed to create dependency ${funcName}:`,
-                    error
-                  );
-                }
-              }
-            } catch (error) {
-              console.warn('Failed to process dependencies:', error);
-            }
-          } else {
-            console.log('No dependencies for function:', functionId);
-          }
-
-          // Execute the function
           try {
-            // Create a wrapper that makes Promise available in the function scope
-            const fnString = `
-              (async function(data) {
+            // Create a safe execution environment with the user function
+            const executionCode = `
+              (async function(...args) {
+                // Ensure essential globals are available
                 var Promise = globalThis.Promise || Promise;
                 var setTimeout = globalThis.setTimeout || setTimeout;
                 var clearTimeout = globalThis.clearTimeout || clearTimeout;
                 var console = globalThis.console || console;
-                ${entry.serializedFn
-                  .replace(/new Promise/g, 'new Promise')
-                  .replace(/async function\(data\) \{/, '')
-                  .replace(/\}$/, '')}
+                
+                // Make context available
+                var context = ${JSON.stringify(context)};
+                
+                // User function
+                ${userFunction}
+                
+                // Execute the function
+                return await fn(...args);
               })
             `;
 
-            const fn = eval(fnString);
-            const result = await fn(message.data);
+            const fn = eval(executionCode);
+            const result = await fn(...(args || []));
 
             parentPort?.postMessage({
               id: message.id,
               success: true,
               result,
+              invocationId,
               workerId: workerData?.workerId || 0,
             });
           } catch (error) {
-            console.error(
-              'Worker: Error executing function:',
-              functionId,
-              'Error:',
-              error
-            );
+            console.error('Worker: Error executing function:', error);
 
             parentPort?.postMessage({
               id: message.id,
               success: false,
               error: (error as Error).message,
+              invocationId,
               workerId: workerData?.workerId || 0,
             });
           }
@@ -146,13 +124,11 @@ if (parentPort) {
           break;
 
         case 'shutdown':
-          // Send confirmation before exiting
           parentPort?.postMessage({
             id: message.id,
             success: true,
             workerId: workerData?.workerId || 0,
           });
-          // Exit after a small delay to ensure message is sent
           setTimeout(() => {
             process.exit(0);
           }, 100);
