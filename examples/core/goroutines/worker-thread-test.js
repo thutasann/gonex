@@ -61,8 +61,29 @@ async function testWorkerThreads() {
     );
     console.log('Heavy computation result:', result3);
 
-    // Test 4: Multiple concurrent executions
-    console.log('\n4. Testing multiple concurrent executions...');
+    // Test 4: Function with function argument
+    console.log('\n4. Testing function with function argument...');
+    const heavyTask = data => {
+      console.log('Executing heavyTask with data:', data);
+      let result = 0;
+      for (let i = 0; i < 10000; i++) {
+        result += Math.sqrt(i) * data;
+      }
+      return result;
+    };
+
+    const result4 = await go(
+      async (task, data) => {
+        console.log('Executing in worker thread with task and data:', data);
+        return await task(data);
+      },
+      [heavyTask, 5],
+      { useWorkerThreads: true }
+    );
+    console.log('Function with function argument result:', result4);
+
+    // Test 5: Multiple concurrent executions
+    console.log('\n5. Testing multiple concurrent executions...');
     const promises = [];
     for (let i = 0; i < 5; i++) {
       promises.push(
@@ -88,8 +109,8 @@ async function testWorkerThreads() {
     const results = await Promise.all(promises);
     console.log('All workers completed:', results);
 
-    // Test 5: Error handling
-    console.log('\n5. Testing error handling...');
+    // Test 6: Error handling
+    console.log('\n6. Testing error handling...');
     try {
       await go(
         message => {
@@ -102,8 +123,8 @@ async function testWorkerThreads() {
       console.log('Caught error:', error.message);
     }
 
-    // Test 6: goAll with arguments
-    console.log('\n6. Testing goAll with arguments...');
+    // Test 7: goAll with arguments
+    console.log('\n7. Testing goAll with arguments...');
     const functions = [x => x * 2, x => x + 10, x => x * x];
     const args = [[5], [15], [3]];
 
@@ -121,5 +142,4 @@ async function testWorkerThreads() {
   }
 }
 
-// Run the test
 testWorkerThreads().catch(console.error);

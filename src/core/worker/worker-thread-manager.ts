@@ -90,7 +90,6 @@ export class WorkerThreadManager {
   private healthMonitoringInterval: NodeJS.Timeout | null = null;
   private currentWorkerIndex = 0;
   private invocationCount = 0;
-  private isInitialized = false;
 
   constructor(config: Partial<WorkerThreadConfig> = {}) {
     this.config = {
@@ -149,62 +148,6 @@ export class WorkerThreadManager {
   }
 
   /**
-   * Initialize workers with a function
-   *
-   * @param fn - Function to initialize workers with
-   * @param context - Context variables to pass to workers
-   */
-  async initializeWorkers<T>(
-    fn: (...args: AnyValue[]) => T | Promise<T>,
-    context: Record<string, AnyValue> = {}
-  ): Promise<void> {
-    if (this.isInitialized) {
-      return;
-    }
-
-    // Serialize the function
-    const { functionCode, dependencies } = this.serializeFunction(fn);
-
-    // Initialize all workers with the function
-    const initPromises = this.workers.map(async worker => {
-      const messageId = this.generateMessageId();
-
-      return new Promise<void>((resolve, reject) => {
-        const timeoutId = setTimeout(() => {
-          reject(new Error('Worker initialization timeout'));
-        }, 10000);
-
-        const handler = (message: AnyValue) => {
-          if (message.id === messageId) {
-            clearTimeout(timeoutId);
-            worker.off('message', handler);
-            if (message.success) {
-              resolve();
-            } else {
-              reject(
-                new Error(message.error || 'Worker initialization failed')
-              );
-            }
-          }
-        };
-
-        worker.on('message', handler);
-
-        worker.postMessage({
-          id: messageId,
-          type: 'init',
-          functionCode,
-          variables: context,
-          dependencies,
-        });
-      });
-    });
-
-    await Promise.all(initPromises);
-    this.isInitialized = true;
-  }
-
-  /**
    * Serialize a function for worker thread execution
    *
    * @param fn - Function to serialize
@@ -240,6 +183,121 @@ export class WorkerThreadManager {
       functionCode,
       dependencies,
     };
+  }
+
+  /**
+   * Serialize arguments and extract function dependencies
+   *
+   * @param args - Arguments to serialize
+   * @returns Object containing serialized arguments and additional dependencies
+   */
+  private serializeArguments(args: AnyValue[]): {
+    serializedArgs: AnyValue[];
+    additionalDependencies: Record<string, string>;
+  } {
+    const serializedArgs: AnyValue[] = [];
+    const additionalDependencies: Record<string, string> = {};
+
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+
+      if (typeof arg === 'function') {
+        // Create a unique name for this function
+        const funcName = `arg_func_${i}_${Date.now()}`;
+
+        // Serialize the function and add it to dependencies
+        additionalDependencies[funcName] = arg.toString();
+
+        // Replace the function with its name in the arguments
+        serializedArgs.push(funcName);
+      } else {
+        serializedArgs.push(arg);
+      }
+    }
+
+    return {
+      serializedArgs,
+      additionalDependencies,
+    };
+  }
+
+  /**
+   * Serialize variables following the multithreading library's approach
+   *
+   * @param variables - Variables to serialize
+   * @returns Serialized variables
+   */
+  private serializeVariables(
+    variables: Record<string, AnyValue>
+  ): Record<string, AnyValue> {
+    const serialized: Record<string, AnyValue> = {};
+
+    for (const [key, value] of Object.entries(variables)) {
+      if (typeof value === 'function') {
+        serialized[key] = {
+          wasType: 'function',
+          value: value.toString(),
+        };
+      } else {
+        serialized[key] = value;
+      }
+    }
+
+    return serialized;
+  }
+
+  /**
+   * Initialize workers with a function
+   *
+   * @param fn - Function to initialize workers with
+   * @param context - Context variables to pass to workers
+   */
+  async initializeWorkers<T>(
+    fn: (...args: AnyValue[]) => T | Promise<T>,
+    context: Record<string, AnyValue> = {}
+  ): Promise<void> {
+    // Serialize the function
+    const { functionCode, dependencies } = this.serializeFunction(fn);
+
+    // Serialize variables following multithreading library's approach
+    const serializedVariables = this.serializeVariables(context);
+
+    // Initialize all workers with the function
+    const initPromises = this.workers.map(async worker => {
+      const messageId = this.generateMessageId();
+
+      return new Promise<void>((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          reject(new Error('Worker initialization timeout'));
+        }, 10000);
+
+        const handler = (message: AnyValue) => {
+          if (message.id === messageId) {
+            clearTimeout(timeoutId);
+            worker.off('message', handler);
+            if (message.success) {
+              resolve();
+            } else {
+              reject(
+                new Error(message.error || 'Worker initialization failed')
+              );
+            }
+          }
+        };
+
+        worker.on('message', handler);
+
+        worker.postMessage({
+          id: messageId,
+          type: 'init',
+          functionCode,
+          variables: serializedVariables,
+          dependencies,
+        });
+      });
+    });
+
+    await Promise.all(initPromises);
   }
 
   /**
@@ -376,10 +434,12 @@ export class WorkerThreadManager {
     // Set logger to worker thread mode
     logger.setExecutionMode('worker-thread');
 
-    // Initialize workers if not already done
-    if (!this.isInitialized) {
-      await this.initializeWorkers(fn);
-    }
+    // Serialize arguments and extract function dependencies
+    const { serializedArgs, additionalDependencies } =
+      this.serializeArguments(args);
+
+    // Always re-initialize workers with the new function to avoid function reuse
+    await this.initializeWorkers(fn);
 
     // Simple round-robin for maximum speed
     const worker = this.workers[this.currentWorkerIndex]!;
@@ -409,7 +469,8 @@ export class WorkerThreadManager {
       worker.postMessage({
         id: messageId,
         type: 'execute',
-        args,
+        args: serializedArgs,
+        dependencies: additionalDependencies,
         invocationId,
         timeout: operationTimeout,
       });
@@ -569,7 +630,6 @@ export class WorkerThreadManager {
     this.workers = [];
     this.workerHealth.clear();
     this.messageHandlers.clear();
-    this.isInitialized = false;
 
     log.worker('All worker threads shutdown complete');
   }

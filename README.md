@@ -125,7 +125,7 @@ const heavyTasks = [
 ];
 
 // Execute in parallel using worker threads
-const results = await goAll(heavyTasks, { useWorkerThreads: true });
+const results = await goAll(heavyTasks, [], { useWorkerThreads: true });
 console.log('All tasks completed in parallel!');
 ```
 
@@ -135,11 +135,11 @@ console.log('All tasks completed in parallel!');
 import { go, goAll } from 'gonex';
 
 // Event-loop execution (single-threaded)
-const eventLoopResults = await goAll(tasks, { useWorkerThreads: false });
+const eventLoopResults = await goAll(tasks, [], { useWorkerThreads: false });
 // Execution time: ~16 seconds
 
 // Worker thread execution (multi-core)
-const parallelResults = await goAll(tasks, { useWorkerThreads: true });
+const parallelResults = await goAll(tasks, [] { useWorkerThreads: true });
 // Execution time: ~6 seconds (2.6x faster!)
 ```
 

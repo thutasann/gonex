@@ -1,6 +1,35 @@
 /* eslint-disable no-case-declarations */
 import { parentPort, workerData } from 'worker_threads';
 
+/**
+ * Deserialize functions from the context
+ */
+function deserializeFunctions(
+  variables: Record<string, AnyValue>
+): Record<string, AnyValue> {
+  const deserialized: Record<string, AnyValue> = {};
+
+  for (const [key, value] of Object.entries(variables)) {
+    if (typeof value === 'object' && value !== null && 'wasType' in value) {
+      if (value.wasType === 'function') {
+        // Create the function from its string representation
+        try {
+          const func = new Function(`return ${value.value}`)();
+          deserialized[key] = func;
+        } catch (error) {
+          console.warn(`Failed to deserialize function ${key}:`, error);
+        }
+      } else {
+        deserialized[key] = value;
+      }
+    } else {
+      deserialized[key] = value;
+    }
+  }
+
+  return deserialized;
+}
+
 // Worker thread implementation
 if (parentPort) {
   // Initialize global scope for worker
@@ -51,9 +80,11 @@ if (parentPort) {
             }
           }
 
-          // Set up variables in context
+          // Set up variables in context and deserialize functions
           if (variables && typeof variables === 'object') {
-            context = { ...variables };
+            context = deserializeFunctions(variables);
+            // Make context available in global scope
+            Object.assign(globalScope, context);
           }
 
           parentPort?.postMessage({
@@ -65,14 +96,39 @@ if (parentPort) {
 
         case 'execute':
           // Execute the function with arguments
-          const { args, invocationId } = message;
+          const {
+            args,
+            invocationId,
+            dependencies: additionalDependencies,
+          } = message;
 
           if (!userFunction) {
             throw new Error('Worker not initialized with function');
           }
 
           try {
-            // Create a safe execution environment with the user function
+            // Set up additional dependencies if provided
+            if (
+              additionalDependencies &&
+              typeof additionalDependencies === 'object'
+            ) {
+              for (const [name, code] of Object.entries(
+                additionalDependencies
+              )) {
+                try {
+                  // Create the dependency function in the worker context
+                  const func = new Function(`return ${code}`)();
+                  globalScope[name] = func;
+                } catch (error) {
+                  console.warn(
+                    `Failed to create additional dependency ${name}:`,
+                    error
+                  );
+                }
+              }
+            }
+
+            // Create the execution environment
             const executionCode = `
               (async function(...args) {
                 // Ensure essential globals are available
@@ -81,14 +137,19 @@ if (parentPort) {
                 var clearTimeout = globalThis.clearTimeout || clearTimeout;
                 var console = globalThis.console || console;
                 
-                // Make context available
-                var context = ${JSON.stringify(context)};
+                // Resolve function arguments
+                const resolvedArgs = args.map(arg => {
+                  if (typeof arg === 'string' && arg.startsWith('arg_func_') && globalThis[arg]) {
+                    return globalThis[arg];
+                  }
+                  return arg;
+                });
                 
-                // User function
+                // Create the user function
                 ${userFunction}
                 
-                // Execute the function
-                return await fn(...args);
+                // Execute the function with the resolved arguments
+                return await fn(...resolvedArgs);
               })
             `;
 
