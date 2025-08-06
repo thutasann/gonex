@@ -190,9 +190,9 @@ if (parentPort) {
             success: true,
             workerId: workerData?.workerId || 0,
           });
-          setTimeout(() => {
-            process.exit(0);
-          }, 100);
+          // Exit immediately after sending response
+          console.log(`Worker ${workerData?.workerId || 0} shutting down...`);
+          process.exit(0);
           break;
 
         default:

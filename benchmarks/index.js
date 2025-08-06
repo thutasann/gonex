@@ -24,6 +24,7 @@ console.log(
 // Import benchmark modules
 import { runGoroutineBenchmarks } from './benchmarks/goroutines.js';
 import { generateReport } from './utils/report-generator.js';
+import { shutdownParallelScheduler } from '../dist/index.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -90,6 +91,15 @@ async function runBenchmarks() {
   } catch (error) {
     console.error(chalk.red('❌ Benchmark suite failed:'), error);
     process.exit(1);
+  } finally {
+    console.log(chalk.blue('\n🔄 Shutting down parallel scheduler...'));
+    await shutdownParallelScheduler();
+
+    // Force exit after a short delay to ensure cleanup
+    setTimeout(() => {
+      console.log(chalk.green('✅ Process cleanup complete'));
+      process.exit(0);
+    }, 100);
   }
 }
 
