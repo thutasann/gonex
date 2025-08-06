@@ -69,9 +69,13 @@ class WebServerSimulator {
       this.stateMutex.unlock();
 
       // Process request data using worker threads for CPU-intensive work
-      const processedData = await go(() => this.processRequestData(requestId), {
-        useWorkerThreads: true,
-      });
+      const processedData = await go(
+        () => this.processRequestData(requestId),
+        [],
+        {
+          useWorkerThreads: true,
+        }
+      );
 
       console.log(
         `   📤 Request ${requestId} completed (State: ${JSON.stringify(state)}, Data: ${processedData.result})`
@@ -166,7 +170,7 @@ for (let i = 1; i <= 2; i++) {
         console.log(`   📥 Consumer ${i} processing: ${task.id}`);
 
         // Process task using worker thread for CPU-intensive work
-        const result = await go(() => processTaskIntensively(task), {
+        const result = await go(() => processTaskIntensively(task), [], {
           useWorkerThreads: true,
         });
 
@@ -260,7 +264,7 @@ async function getCachedData(key) {
     await sleep(200);
 
     // Process data using worker thread for CPU-intensive work
-    const data = await go(() => processUserData(key), {
+    const data = await go(() => processUserData(key), [], {
       useWorkerThreads: true,
     });
 
@@ -325,7 +329,7 @@ for (const batch of batches) {
     );
 
     // Process batch using worker thread
-    const result = await go(() => processBatch(batch.id, batch.items), {
+    const result = await go(() => processBatch(batch.id, batch.items), [], {
       useWorkerThreads: true,
     });
 

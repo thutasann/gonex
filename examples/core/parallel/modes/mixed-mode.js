@@ -35,9 +35,9 @@ const heavyResult = await go(
     }
     return `Heavy result: ${sum.toFixed(2)}`;
   },
+  [],
   {
     useWorkerThreads: true,
-    parallel: { threadCount: 2 },
   }
 );
 

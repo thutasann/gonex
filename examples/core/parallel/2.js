@@ -16,9 +16,8 @@ console.log('2. Heavy computation with true parallelism:');
 
 const startTime = Date.now();
 
-const results = await goAll(heavy_computations, {
+const results = await goAll(heavy_computations, [], {
   useWorkerThreads: true,
-  parallel: { threadCount: 4 },
 });
 
 const endTime = Date.now();

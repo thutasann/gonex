@@ -110,22 +110,25 @@ async function benchmarkAsyncGoroutine() {
  * Benchmark: Event-loop vs Worker-thread performance for CPU-intensive tasks
  */
 async function benchmarkCpuIntensiveComparison() {
-  const tasks = Array.from({ length: 4 }, () => () => cpuIntensiveTask(500000));
+  const tasks = Array.from(
+    { length: 4 },
+    () => iterations => cpuIntensiveTask(iterations)
+  );
 
   const eventLoopBenchmark = runBenchmark(
     'CPU-Intensive (Event-Loop)',
     async () => {
-      await goAll(tasks, { useWorkerThreads: false });
+      await goAll(tasks, [[500000], [500000], [500000], [500000]], {
+        useWorkerThreads: false,
+      });
     }
   );
 
   const workerThreadBenchmark = runBenchmark(
     'CPU-Intensive (Worker-Threads)',
     async () => {
-      await goAll(tasks, {
+      await goAll(tasks, [[500000], [500000], [500000], [500000]], {
         useWorkerThreads: true,
-        args: [500000],
-        dependencies: { cpuIntensiveTask: cpuIntensiveTask },
       });
     }
   );
@@ -139,42 +142,42 @@ async function benchmarkCpuIntensiveComparison() {
 /**
  * Benchmark: goAll performance with different task counts
  */
-// async function benchmarkGoAllScaling() {
-//   const results = {};
-//   const taskCounts = [10, 50, 100, 200];
+async function benchmarkGoAllScaling() {
+  const results = {};
+  const taskCounts = [10, 50, 100, 200];
 
-//   for (const taskCount of taskCounts) {
-//     const tasks = Array.from(
-//       { length: taskCount },
-//       (_, i) => () => `task-${i}`
-//     );
+  for (const taskCount of taskCounts) {
+    const tasks = Array.from(
+      { length: taskCount },
+      () => taskId => `task-${taskId}`
+    );
 
-//     const eventLoopResult = await runBenchmark(
-//       `goAll ${taskCount} tasks (Event-Loop)`,
-//       async () => {
-//         await goAll(tasks, { useWorkerThreads: false });
-//       }
-//     );
+    const args = Array.from({ length: taskCount }, () => []);
 
-//     const workerThreadResult = await runBenchmark(
-//       `goAll ${taskCount} tasks (Worker-Threads)`,
-//       async () => {
-//         await goAll(tasks, {
-//           useWorkerThreads: true,
-//           args: [taskCount],
-//           dependencies: { cpuIntensiveTask: cpuIntensiveTask },
-//         });
-//       }
-//     );
+    const eventLoopResult = await runBenchmark(
+      `goAll ${taskCount} tasks (Event-Loop)`,
+      async () => {
+        await goAll(tasks, args, { useWorkerThreads: false });
+      }
+    );
 
-//     results[taskCount] = {
-//       eventLoop: eventLoopResult,
-//       workerThread: workerThreadResult,
-//     };
-//   }
+    const workerThreadResult = await runBenchmark(
+      `goAll ${taskCount} tasks (Worker-Threads)`,
+      async () => {
+        await goAll(tasks, args, {
+          useWorkerThreads: true,
+        });
+      }
+    );
 
-//   return results;
-// }
+    results[taskCount] = {
+      eventLoop: eventLoopResult,
+      workerThread: workerThreadResult,
+    };
+  }
+
+  return results;
+}
 
 /**
  * Benchmark: goRace performance
@@ -182,14 +185,14 @@ async function benchmarkCpuIntensiveComparison() {
 async function benchmarkGoRace() {
   const tasks = Array.from(
     { length: 10 },
-    (_, i) => () =>
-      new Promise(resolve =>
-        setTimeout(() => resolve(`race-${i}`), Math.random() * 100)
-      )
+    (_, i) => delay =>
+      new Promise(resolve => setTimeout(() => resolve(`race-${i}`), delay))
   );
 
+  const args = Array.from({ length: 10 }, () => [Math.random() * 100]);
+
   return runBenchmark('goRace', async () => {
-    await goRace(tasks);
+    await goRace(tasks, args);
   });
 }
 
@@ -209,7 +212,7 @@ async function benchmarkGoRace() {
 //   return runBenchmark('goWithRetry', async () => {
 //     failCount = 0;
 //     try {
-//       await goWithRetry(failingTask, 3, 50);
+//       await goWithRetry(failingTask, [], 3, 50);
 //     } catch (_error) {
 //       // Expected error for the first few attempts
 //       if (failCount <= 2) {
@@ -262,7 +265,7 @@ async function benchmarkMemoryUsage() {
 //     const promises = [];
 //     for (let i = 0; i < 100; i++) {
 //       promises.push(
-//         go(errorTask, {
+//         go(errorTask, [], {
 //           onError: () => {
 //             // Error handler
 //           },
@@ -281,24 +284,54 @@ async function benchmarkMemoryUsage() {
 async function benchmarkMixedWorkload() {
   const cpuTasks = Array.from(
     { length: 2 },
-    () => () => cpuIntensiveTask(200000)
+    () => iterations => cpuIntensiveTask(iterations)
   );
-  const ioTasks = Array.from({ length: 3 }, () => async () => {
-    const result = await ioSimulationTask(50);
+  const ioTasks = Array.from({ length: 3 }, () => async delay => {
+    const result = await ioSimulationTask(delay);
     return result.length; // Return a number to match CPU tasks
   });
 
   const eventLoopResult = await runBenchmark(
     'Mixed Workload (Event-Loop)',
     async () => {
-      await goAll([...cpuTasks, ...ioTasks], {
-        useWorkerThreads: false,
-      });
+      await goAll(
+        [...cpuTasks, ...ioTasks],
+        [
+          [200000],
+          [200000], // CPU tasks
+          [50],
+          [50],
+          [50], // I/O tasks
+        ],
+        {
+          useWorkerThreads: false,
+        }
+      );
+    }
+  );
+
+  const workerThreadResult = await runBenchmark(
+    'Mixed Workload (Worker-Threads)',
+    async () => {
+      await goAll(
+        [...cpuTasks, ...ioTasks],
+        [
+          [200000],
+          [200000], // CPU tasks
+          [50],
+          [50],
+          [50], // I/O tasks
+        ],
+        {
+          useWorkerThreads: true,
+        }
+      );
     }
   );
 
   return {
     eventLoop: eventLoopResult,
+    workerThread: workerThreadResult,
   };
 }
 
@@ -333,8 +366,8 @@ export async function runGoroutineBenchmarks() {
     results.mixedWorkload = await benchmarkMixedWorkload();
 
     // Scaling benchmarks
-    // console.log(chalk.yellow('\n📈 Scaling Benchmarks:'));
-    // results.goAllScaling = await benchmarkGoAllScaling();
+    console.log(chalk.yellow('\n📈 Scaling Benchmarks:'));
+    results.goAllScaling = await benchmarkGoAllScaling();
 
     // Memory benchmarks
     console.log(chalk.yellow('\n💾 Memory Usage Benchmarks:'));
