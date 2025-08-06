@@ -3,6 +3,7 @@ import { join } from 'path';
 import { Worker } from 'worker_threads';
 import { log } from '../../utils';
 import { logger } from '../../utils/logger';
+import { FunctionRegistry, getFunctionRegistry } from './function-registry';
 
 /**
  * Configuration for worker thread management
@@ -41,12 +42,12 @@ export type WorkerHealth = {
  */
 export type WorkerMessage = {
   id: string;
-  type: 'execute' | 'heartbeat' | 'shutdown';
-  fn?: string;
-  dependencies?: Record<string, string>;
-  args?: AnyValue[];
+  type: 'execute' | 'heartbeat' | 'shutdown' | 'register_function';
+  functionId?: string;
   data?: AnyValue;
   timeout?: number;
+  serializedFn?: string;
+  dependencies?: Record<string, string>;
 };
 
 /**
@@ -87,6 +88,7 @@ export class WorkerThreadManager {
   private isShuttingDown = false;
   private healthMonitoringInterval: NodeJS.Timeout | null = null;
   private currentWorkerIndex = 0;
+  private functionRegistry: FunctionRegistry;
 
   constructor(config: Partial<WorkerThreadConfig> = {}) {
     this.config = {
@@ -99,6 +101,7 @@ export class WorkerThreadManager {
       sharedMemory: true,
       ...config,
     };
+    this.functionRegistry = getFunctionRegistry();
   }
 
   /**
@@ -112,6 +115,9 @@ export class WorkerThreadManager {
     if (this.isShuttingDown) {
       throw new Error('WorkerThreadManager is shutting down');
     }
+
+    // Initialize the function registry
+    await this.functionRegistry.initialize();
 
     for (let i = 0; i < numWorkers; i++) {
       await this.createWorker(i);
@@ -133,6 +139,9 @@ export class WorkerThreadManager {
     worker.on('error', this.handleWorkerError.bind(this));
     worker.on('exit', this.handleWorkerExit.bind(this));
 
+    // Initialize the function registry in the worker
+    await this.initializeWorkerRegistry(worker);
+
     this.workers.push(worker);
     this.workerHealth.set(workerId, {
       workerId,
@@ -145,26 +154,134 @@ export class WorkerThreadManager {
   }
 
   /**
+   * Initialize the function registry in a worker thread
+   *
+   * @param worker - Worker thread to initialize
+   */
+  private async initializeWorkerRegistry(worker: Worker): Promise<void> {
+    // Send all registered functions to the worker
+    const entries = this.functionRegistry.getAllEntries();
+
+    // If no entries, just return (registry might be empty initially)
+    if (!entries || entries.length === 0) {
+      return;
+    }
+
+    for (const entry of entries) {
+      const messageId = this.generateMessageId();
+
+      await new Promise<void>((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          reject(new Error('Worker registry initialization timeout'));
+        }, 5000);
+
+        const handler = (message: AnyValue) => {
+          if (message.id === messageId && message.success) {
+            clearTimeout(timeoutId);
+            worker.off('message', handler);
+            resolve();
+          }
+        };
+
+        worker.on('message', handler);
+
+        worker.postMessage({
+          id: messageId,
+          type: 'register_function',
+          functionId: entry.metadata.id,
+          serializedFn: entry.serializedFn,
+          dependencies: entry.dependencies,
+        });
+      });
+    }
+  }
+
+  /**
+   * Register a function in the function registry
+   *
+   * @param fn - Function to register
+   * @returns Function ID
+   */
+  private async registerFunction<T>(fn: () => T | Promise<T>): Promise<string> {
+    const functionId = `fn_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+    this.functionRegistry.register({
+      id: functionId,
+      name: `worker_function_${functionId}`,
+      fn: fn as (...args: AnyValue[]) => AnyValue,
+      description: 'Worker thread function',
+    });
+
+    // Register the function in all worker threads
+    await this.registerFunctionInWorkers(functionId);
+
+    return functionId;
+  }
+
+  /**
+   * Register a function in all worker threads
+   *
+   * @param functionId - Function ID to register
+   */
+  private async registerFunctionInWorkers(functionId: string): Promise<void> {
+    const entry = this.functionRegistry.get(functionId);
+    if (!entry) {
+      throw new Error(`Function with ID '${functionId}' not found in registry`);
+    }
+
+    // If no workers, just return
+    if (this.workers.length === 0) {
+      return;
+    }
+
+    const promises = this.workers.map(async worker => {
+      const messageId = this.generateMessageId();
+
+      return new Promise<void>((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          reject(new Error('Worker function registration timeout'));
+        }, 5000);
+
+        const handler = (message: AnyValue) => {
+          if (message.id === messageId && message.success) {
+            clearTimeout(timeoutId);
+            worker.off('message', handler);
+            resolve();
+          }
+        };
+
+        worker.on('message', handler);
+
+        worker.postMessage({
+          id: messageId,
+          type: 'register_function',
+          functionId: entry.metadata.id,
+          serializedFn: entry.serializedFn,
+          dependencies: entry.dependencies,
+        });
+      });
+    });
+
+    await Promise.all(promises);
+  }
+
+  /**
    * Execute a function on a worker thread
    *
    * @param fn - Function to execute
    * @param timeout - Optional timeout in milliseconds
-   * @param args - Optional arguments to pass to the function
-   * @param dependencies - Optional function dependencies
    * @returns Promise that resolves with the function result
    */
-  async execute<T>(
-    fn: () => T | Promise<T>,
-    timeout?: number,
-    args?: AnyValue[],
-    dependencies?: Record<string, (...args: AnyValue[]) => AnyValue>
-  ): Promise<T> {
+  async execute<T>(fn: () => T | Promise<T>, timeout?: number): Promise<T> {
     if (this.workers.length === 0) {
       throw new Error('No worker threads available');
     }
 
     // Set logger to worker thread mode
     logger.setExecutionMode('worker-thread');
+
+    // Register the function in the registry
+    const functionId = await this.registerFunction(fn);
 
     // Simple round-robin for maximum speed
     const worker = this.workers[this.currentWorkerIndex]!;
@@ -189,310 +306,14 @@ export class WorkerThreadManager {
         timeout: timeoutId,
       });
 
-      // Process functions and their dependencies
-      const { serializedFn, allDependencies } =
-        this.processFunctionWithDependencies(fn, dependencies);
-
-      // Send message to worker
+      // Send message to worker with function ID
       worker.postMessage({
         id: messageId,
         type: 'execute',
-        fn: serializedFn,
-        dependencies: allDependencies,
-        args: args || [],
+        functionId,
         timeout: operationTimeout,
       });
     });
-  }
-
-  /**
-   * Process a function and its dependencies, handling compiled imports
-   *
-   * @param fn - Function to process
-   * @param explicitDependencies - Explicitly provided dependencies
-   * @returns Object containing serialized function and all dependencies
-   */
-  private processFunctionWithDependencies(
-    fn: (...args: AnyValue[]) => AnyValue,
-    explicitDependencies?: Record<string, (...args: AnyValue[]) => AnyValue>
-  ): {
-    serializedFn: string;
-    allDependencies: Record<string, string>;
-  } {
-    const allDependencies: Record<string, string> = {};
-
-    // Process explicit dependencies first
-    if (explicitDependencies) {
-      for (const [name, func] of Object.entries(explicitDependencies)) {
-        const { processedFn, additionalDeps } = this.processCompiledImports(
-          func.toString()
-        );
-        allDependencies[name] = processedFn;
-        Object.assign(allDependencies, additionalDeps);
-      }
-    }
-
-    // Process the main function
-    const { serializedFn, autoDependencies } =
-      this.serializeFunctionWithDependencies(fn);
-    Object.assign(allDependencies, autoDependencies);
-
-    return {
-      serializedFn,
-      allDependencies,
-    };
-  }
-
-  /**
-   * Process a function string to handle compiled import references
-   *
-   * @param fnString - Function string to process
-   * @returns Object containing processed function and additional dependencies
-   */
-  private processCompiledImports(fnString: string): {
-    processedFn: string;
-    additionalDeps: Record<string, string>;
-  } {
-    const additionalDeps: Record<string, string> = {};
-    let processedFn = fnString;
-
-    // Find all compiled import references like (0, module_1.functionName)
-    const compiledImportPattern = /\(0,\s*(\w+_\d+)\.(\w+)\)/g;
-    const matches = [...processedFn.matchAll(compiledImportPattern)];
-
-    for (const match of matches) {
-      const moduleName = match[1];
-      const functionName = match[2];
-
-      if (moduleName && functionName) {
-        // Try to get the actual function from the global scope
-        const actualFunction = this.extractFunctionFromGlobalScope(
-          moduleName,
-          functionName
-        );
-
-        if (actualFunction) {
-          // Replace the compiled import with the function name
-          processedFn = processedFn.replace(match[0], functionName);
-          additionalDeps[functionName] = actualFunction;
-        } else {
-          // If we can't find the function, create a fallback implementation
-          const fallbackFunction = this.createFallbackFunction(functionName);
-          if (fallbackFunction) {
-            processedFn = processedFn.replace(match[0], functionName);
-            additionalDeps[functionName] = fallbackFunction;
-          }
-        }
-      }
-    }
-
-    return {
-      processedFn,
-      additionalDeps,
-    };
-  }
-
-  /**
-   * Extract a function from the global scope by trying to resolve the compiled module reference
-   *
-   * @param moduleName - The compiled module name (e.g., utils_1)
-   * @param functionName - The function name (e.g., validateDuration)
-   * @returns Function string or null if not found
-   */
-  private extractFunctionFromGlobalScope(
-    moduleName: string,
-    functionName: string
-  ): string | null {
-    try {
-      // Try to get the module from global scope
-      const globalScope = globalThis as AnyValue;
-
-      // First, try to get the module directly
-      if (globalScope[moduleName] && globalScope[moduleName][functionName]) {
-        return globalScope[moduleName][functionName].toString();
-      }
-
-      // If that doesn't work, try to find the function in the global scope
-      if (globalScope[functionName]) {
-        return globalScope[functionName].toString();
-      }
-
-      // Try to find the module by looking for patterns like utils_1, index_1, etc.
-      const modulePattern = new RegExp(
-        `^${moduleName.replace(/\d+$/, '')}\\d*$`
-      );
-      for (const key in globalScope) {
-        if (
-          modulePattern.test(key) &&
-          globalScope[key] &&
-          globalScope[key][functionName]
-        ) {
-          return globalScope[key][functionName].toString();
-        }
-      }
-
-      return null;
-    } catch (error) {
-      // If we can't extract the function, return null
-      return null;
-    }
-  }
-
-  /**
-   * Create a fallback function implementation for common utility functions
-   *
-   * @param functionName - The function name
-   * @returns Fallback function string or null if not supported
-   */
-  private createFallbackFunction(functionName: string): string | null {
-    // Common utility functions that we can provide fallback implementations for
-    const fallbackFunctions: Record<string, string> = {
-      validateDuration: `function validateDuration(duration, name) {
-        if (typeof duration !== 'number' || duration < 0 || !isFinite(duration)) {
-          throw new Error(\`Invalid \${name}: must be a non-negative finite number\`);
-        }
-      }`,
-      validateTimeout: `function validateTimeout(timeout, name) {
-        if (typeof timeout !== 'number' || timeout < 0 || !isFinite(timeout)) {
-          throw new Error(\`Invalid \${name}: must be a non-negative finite number\`);
-        }
-      }`,
-      sleep: `function sleep(duration) {
-        if (typeof duration !== 'number' || duration < 0 || !isFinite(duration)) {
-          throw new Error('Invalid sleep duration: must be a non-negative finite number');
-        }
-        return new Promise(resolve => {
-          setTimeout(resolve, duration);
-        });
-      }`,
-      // Add more fallback functions as needed
-    };
-
-    return fallbackFunctions[functionName] || null;
-  }
-
-  /**
-   * Serialize a function for worker thread execution with dependencies
-   *
-   * @param fn - Function to serialize
-   * @returns Object containing serialized function and dependencies
-   */
-  private serializeFunctionWithDependencies(
-    fn: (...args: AnyValue[]) => AnyValue
-  ): {
-    serializedFn: string;
-    autoDependencies: Record<string, string>;
-  } {
-    const fnString = fn.toString();
-    const autoDependencies: Record<string, string> = {};
-
-    // Extract the function body more robustly
-    // Handle patterns like: async (/** @type {any} */ data) => { ... }
-    const bodyMatch = fnString.match(/=>\s*\{([\s\S]*)\}$/);
-
-    if (bodyMatch && bodyMatch[1]) {
-      const functionBody = bodyMatch[1].trim();
-
-      // Look for function calls in the body that might be external dependencies
-      // This is a simple heuristic - we'll look for common patterns
-      const functionCalls = functionBody.match(/\b(\w+)\s*\(/g);
-      if (functionCalls) {
-        for (const call of functionCalls) {
-          const funcName = call.replace(/\s*\($/, '');
-
-          // Skip common built-in functions and variables
-          const skipList = [
-            'console',
-            'setTimeout',
-            'setInterval',
-            'clearTimeout',
-            'clearInterval',
-            'Math',
-            'JSON',
-            'Array',
-            'Object',
-            'String',
-            'Number',
-            'Boolean',
-            'Date',
-            'RegExp',
-            'Error',
-            'Promise',
-            'async',
-            'await',
-            'return',
-            'if',
-            'else',
-            'for',
-            'while',
-            'do',
-            'switch',
-            'case',
-            'default',
-            'try',
-            'catch',
-            'finally',
-            'throw',
-            'new',
-            'typeof',
-            'instanceof',
-            'delete',
-            'void',
-            'in',
-            'of',
-            'yield',
-            'let',
-            'const',
-            'var',
-            'function',
-            'class',
-            'extends',
-            'super',
-            'this',
-            'arguments',
-            'data',
-            'result',
-            'error',
-            'i',
-            'j',
-            'k',
-            'x',
-            'y',
-            'z',
-          ];
-
-          if (!skipList.includes(funcName) && !autoDependencies[funcName]) {
-            // Try to get the function from the current scope first
-            try {
-              // Check if the function is available in the current scope
-              const currentScope = globalThis as AnyValue;
-              if (typeof currentScope[funcName] === 'function') {
-                autoDependencies[funcName] = currentScope[funcName].toString();
-              }
-            } catch {
-              // Function not found in current scope, skip it
-            }
-          }
-        }
-      }
-
-      // Create a simple async function that takes a single parameter
-      // This avoids complex parameter parsing issues
-      const result = `async function(data) {
-        ${functionBody}
-      }`;
-
-      return {
-        serializedFn: result,
-        autoDependencies,
-      };
-    }
-
-    // Fallback to original function if parsing fails
-    return {
-      serializedFn: fnString,
-      autoDependencies: {},
-    };
   }
 
   /**
@@ -501,6 +322,12 @@ export class WorkerThreadManager {
    * @param message - Message from worker
    */
   private handleWorkerMessage(message: WorkerResponse): void {
+    // Validate message structure
+    if (!message || typeof message !== 'object') {
+      console.error('Invalid message received from worker:', message);
+      return;
+    }
+
     const handler = this.messageHandlers.get(message.id);
     if (!handler) {
       return; // Message already handled or timed out
@@ -524,7 +351,7 @@ export class WorkerThreadManager {
     if (message.success) {
       handler.resolve(message.result);
     } else {
-      handler.reject(new Error(message.error));
+      handler.reject(new Error(message.error || 'Unknown error'));
     }
   }
 
@@ -538,7 +365,7 @@ export class WorkerThreadManager {
 
     // Find the worker that had the error
     const workerIndex = this.workers.findIndex(
-      worker => worker.threadId === (error as AnyValue).threadId
+      worker => worker.threadId === (error as AnyValue)?.threadId
     );
 
     if (workerIndex !== -1) {
