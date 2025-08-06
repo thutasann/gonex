@@ -4,7 +4,6 @@ import {
   goAll,
   goRace,
   initializeParallelScheduler,
-  shutdownParallelScheduler,
 } from '../../dist/index.js';
 import chalk from 'chalk';
 import ora from 'ora';
@@ -374,8 +373,8 @@ export async function runGoroutineBenchmarks() {
     results.memoryUsage = await benchmarkMemoryUsage();
 
     return results;
-  } finally {
-    console.log(chalk.blue('\n🔄 Shutting down parallel scheduler...'));
-    await shutdownParallelScheduler();
+  } catch (error) {
+    console.error(chalk.red('❌ Benchmark suite failed:'), error);
+    process.exit(1);
   }
 }

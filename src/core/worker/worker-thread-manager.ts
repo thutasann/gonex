@@ -589,27 +589,50 @@ export class WorkerThreadManager {
   async shutdown(): Promise<void> {
     this.isShuttingDown = true;
 
+    console.log(`Shutting down ${this.workers.length} worker threads...`);
+
     const shutdownPromises = this.workers.map((worker, index) => {
       return new Promise<void>(resolve => {
+        let resolved = false;
+
         // Send shutdown message
+        const messageId = this.generateMessageId();
         worker.postMessage({
-          id: this.generateMessageId(),
+          id: messageId,
           type: 'shutdown',
         });
 
         // Listen for exit event
-        const onExit = () => {
-          resolve();
+        const onExit = (code: number) => {
+          if (!resolved) {
+            resolved = true;
+            console.log(`Worker ${index} exited with code ${code}`);
+            // Remove all listeners to prevent memory leaks
+            worker.removeAllListeners();
+            resolve();
+          }
+        };
+
+        // Listen for shutdown response
+        const onMessage = (message: AnyValue) => {
+          if (message.id === messageId && message.success) {
+            console.log(`Worker ${index} acknowledged shutdown`);
+          }
         };
 
         worker.on('exit', onExit);
+        worker.on('message', onMessage);
 
-        // Force terminate after 3 seconds if not responding
+        // Force terminate after 1 second if not responding
         const forceTerminate = setTimeout(() => {
-          log.worker(`Force terminating worker ${index}`);
-          worker.terminate();
-          resolve();
-        }, 3000);
+          if (!resolved) {
+            resolved = true;
+            console.log(`Force terminating worker ${index}`);
+            worker.removeAllListeners();
+            worker.terminate();
+            resolve();
+          }
+        }, 1000);
 
         // Clear timeout if worker exits normally
         worker.on('exit', () => {
@@ -626,12 +649,12 @@ export class WorkerThreadManager {
       this.healthMonitoringInterval = null;
     }
 
-    // Clear all workers array
+    // Clear all workers array and handlers
     this.workers = [];
     this.workerHealth.clear();
     this.messageHandlers.clear();
 
-    log.worker('All worker threads shutdown complete');
+    console.log('All worker threads shutdown complete');
   }
 
   /**
