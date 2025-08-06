@@ -131,6 +131,9 @@ export class WorkerThreadManager {
       workerData: { workerId },
     });
 
+    // Set higher max listeners to prevent warnings
+    worker.setMaxListeners(50);
+
     // Set up message handling
     worker.on('message', this.handleWorkerMessage.bind(this));
     worker.on('error', this.handleWorkerError.bind(this));
@@ -427,6 +430,10 @@ export class WorkerThreadManager {
     args: AnyValue[] = [],
     timeout?: number
   ): Promise<T> {
+    if (this.isShuttingDown) {
+      throw new Error('WorkerThreadManager is shutting down');
+    }
+
     if (this.workers.length === 0) {
       throw new Error('No worker threads available');
     }
@@ -442,7 +449,11 @@ export class WorkerThreadManager {
     await this.initializeWorkers(fn);
 
     // Simple round-robin for maximum speed
-    const worker = this.workers[this.currentWorkerIndex]!;
+    const worker = this.workers[this.currentWorkerIndex];
+    if (!worker) {
+      throw new Error('No worker available for execution');
+    }
+
     this.currentWorkerIndex =
       (this.currentWorkerIndex + 1) % this.workers.length;
     const messageId = this.generateMessageId();
@@ -591,6 +602,9 @@ export class WorkerThreadManager {
 
     console.log(`Shutting down ${this.workers.length} worker threads...`);
 
+    // Clear all message handlers immediately to prevent new executions
+    this.messageHandlers.clear();
+
     const shutdownPromises = this.workers.map((worker, index) => {
       return new Promise<void>(resolve => {
         let resolved = false;
@@ -652,7 +666,6 @@ export class WorkerThreadManager {
     // Clear all workers array and handlers
     this.workers = [];
     this.workerHealth.clear();
-    this.messageHandlers.clear();
 
     console.log('All worker threads shutdown complete');
   }
