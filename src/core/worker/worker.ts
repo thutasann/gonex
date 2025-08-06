@@ -1,5 +1,6 @@
 /* eslint-disable no-case-declarations */
 import { parentPort, workerData } from 'worker_threads';
+import { logger } from '../../utils';
 
 /**
  * Deserialize functions from the context
@@ -191,7 +192,7 @@ if (parentPort) {
             workerId: workerData?.workerId || 0,
           });
           // Exit immediately after sending response
-          console.log(`Worker ${workerData?.workerId || 0} shutting down...`);
+          logger.warn(`Worker ${workerData?.workerId || 0} shutting down...`);
           process.exit(0);
           break;
 

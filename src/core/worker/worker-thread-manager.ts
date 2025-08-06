@@ -600,7 +600,9 @@ export class WorkerThreadManager {
   async shutdown(): Promise<void> {
     this.isShuttingDown = true;
 
-    console.log(`Shutting down ${this.workers.length} worker threads...`);
+    logger.workerThread(
+      `Shutting down ${this.workers.length} worker threads...`
+    );
 
     // Clear all message handlers immediately to prevent new executions
     this.messageHandlers.clear();
@@ -620,7 +622,7 @@ export class WorkerThreadManager {
         const onExit = (code: number) => {
           if (!resolved) {
             resolved = true;
-            console.log(`Worker ${index} exited with code ${code}`);
+            logger.workerThread(`Worker ${index} exited with code ${code}`);
             // Remove all listeners to prevent memory leaks
             worker.removeAllListeners();
             resolve();
@@ -630,7 +632,7 @@ export class WorkerThreadManager {
         // Listen for shutdown response
         const onMessage = (message: AnyValue) => {
           if (message.id === messageId && message.success) {
-            console.log(`Worker ${index} acknowledged shutdown`);
+            logger.workerThread(`Worker ${index} acknowledged shutdown`);
           }
         };
 
@@ -641,7 +643,7 @@ export class WorkerThreadManager {
         const forceTerminate = setTimeout(() => {
           if (!resolved) {
             resolved = true;
-            console.log(`Force terminating worker ${index}`);
+            logger.workerThread(`Force terminating worker ${index}`);
             worker.removeAllListeners();
             worker.terminate();
             resolve();
@@ -667,7 +669,7 @@ export class WorkerThreadManager {
     this.workers = [];
     this.workerHealth.clear();
 
-    console.log('All worker threads shutdown complete');
+    logger.workerThread('All worker threads shutdown complete');
   }
 
   /**
