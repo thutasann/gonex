@@ -36,6 +36,9 @@ if (parentPort) {
   // Initialize global scope for worker
   const globalScope = globalThis as AnyValue;
 
+  // Get user's project directory from worker data
+  const userProjectDir = workerData?.userProjectDir || process.cwd();
+
   // Ensure essential globals are available
   if (typeof Promise === 'undefined') {
     globalScope.Promise = Promise;
@@ -137,6 +140,28 @@ if (parentPort) {
                 var setTimeout = globalThis.setTimeout || setTimeout;
                 var clearTimeout = globalThis.clearTimeout || clearTimeout;
                 var console = globalThis.console || console;
+                
+                // Set up module resolution to use user's project directory
+                const userProjectDir = '${userProjectDir}';
+                
+                // Override require to resolve from user's project directory
+                const originalRequire = require;
+                require = function(id) {
+                  try {
+                    return originalRequire(id);
+                  } catch (error) {
+                    // Try resolving from user's project directory
+                    const path = require('path');
+                    const modulePath = path.resolve(userProjectDir, 'node_modules', id);
+                    try {
+                      return originalRequire(modulePath);
+                    } catch (secondError) {
+                      // If that fails, try the examples directory
+                      const examplesPath = path.resolve(userProjectDir, 'examples', 'node_modules', id);
+                      return originalRequire(examplesPath);
+                    }
+                  }
+                };
                 
                 // Resolve function arguments
                 const resolvedArgs = args.map(arg => {

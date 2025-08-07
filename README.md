@@ -24,6 +24,7 @@ A comprehensive TypeScript library that brings Go's powerful concurrency primiti
 - **Performance Optimized** - Minimal overhead with direct function execution
 - **Smart Fallback** - Automatic fallback to event-loop for I/O-bound tasks
 - **Execution Mode Tracking** - Clear logging of event-loop vs worker-thread execution
+- **External Imports** - Support for Node.js built-in modules and third-party packages in worker threads
 
 ### Timing and Scheduling
 
@@ -66,7 +67,7 @@ pnpm add gonex
 
 ## Quick Start
 
-```typescript
+````typescript
 import { go, channel, select, waitGroup } from 'gonex';
 
 // Simple goroutine (event-loop)
@@ -97,7 +98,27 @@ for (let i = 0; i < 3; i++) {
 }
 await wg.wait();
 console.log('All workers completed');
-```
+
+// External imports in worker threads
+import { initializeParallelScheduler, shutdownParallelScheduler } from 'gonex';
+
+await initializeParallelScheduler({ useWorkerThreads: true });
+
+const result = await go(
+  async () => {
+    const fs = await import('node:fs');
+    const crypto = await import('node:crypto');
+
+    return {
+      fileExists: fs.existsSync('/tmp/test'),
+      randomBytes: crypto.randomBytes(4).toString('hex'),
+    };
+  },
+  [],
+  { useWorkerThreads: true }
+);
+
+await shutdownParallelScheduler();
 
 ## 🚀 Parallelism Examples
 
@@ -127,7 +148,7 @@ const heavyTasks = [
 // Execute in parallel using worker threads
 const results = await goAll(heavyTasks, [], { useWorkerThreads: true });
 console.log('All tasks completed in parallel!');
-```
+````
 
 ### Performance Comparison
 
