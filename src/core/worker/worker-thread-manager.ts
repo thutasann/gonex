@@ -2,6 +2,10 @@ import os from 'os';
 import { join } from 'path';
 import { Worker } from 'worker_threads';
 import { log } from '../../utils';
+import {
+  createFunctionWithDependencies,
+  extractAndLoadDependencies,
+} from '../../utils/import-parser';
 import { logger } from '../../utils/logger';
 
 /**
@@ -127,8 +131,14 @@ export class WorkerThreadManager {
    * @param workerId - Unique worker ID
    */
   private async createWorker(workerId: number): Promise<void> {
+    // Get the user's project directory (where the go() function is called from)
+    const userProjectDir = process.cwd();
+
     const worker = new Worker(join(__dirname, './worker.js'), {
-      workerData: { workerId },
+      workerData: {
+        workerId,
+        userProjectDir, // Pass the user's project directory
+      },
     });
 
     // Set higher max listeners to prevent warnings
@@ -156,10 +166,12 @@ export class WorkerThreadManager {
    * @param fn - Function to serialize
    * @returns Object containing serialized function and dependencies
    */
-  private serializeFunction(fn: (...args: AnyValue[]) => AnyValue): {
+  private async serializeFunction(
+    fn: (...args: AnyValue[]) => AnyValue
+  ): Promise<{
     functionCode: string;
     dependencies: Record<string, string>;
-  } {
+  }> {
     const fnString = fn.toString();
     const dependencies: Record<string, string> = {};
 
@@ -172,18 +184,52 @@ export class WorkerThreadManager {
         // Try to get the function from the current scope
         const currentScope = globalThis as AnyValue;
         if (typeof currentScope[funcName] === 'function') {
-          dependencies[funcName] = currentScope[funcName].toString();
+          // Skip built-in functions that might cause serialization issues
+          if (
+            funcName !== 'toString' &&
+            funcName !== 'valueOf' &&
+            funcName !== 'toJSON'
+          ) {
+            dependencies[funcName] = currentScope[funcName].toString();
+          }
         }
       }
     }
 
-    // Create the function code
-    const functionCode = `
-      const fn = ${fnString};
-    `;
+    // Extract external dependencies from the function
+    try {
+      const externalDependencies = await extractAndLoadDependencies(fnString);
+
+      // Add external dependencies to the dependencies object
+      for (const [name, module] of Object.entries(externalDependencies)) {
+        if (typeof module === 'object' && module !== null) {
+          // Serialize the module as JSON
+          dependencies[`external_${name}`] = JSON.stringify(module);
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to extract external dependencies:', error);
+    }
+
+    // Create the function code with external dependencies
+    let functionCode = fnString;
+
+    try {
+      const externalDependencies = await extractAndLoadDependencies(fnString);
+      if (Object.keys(externalDependencies).length > 0) {
+        functionCode = createFunctionWithDependencies(
+          fnString,
+          externalDependencies
+        );
+      }
+    } catch (error) {
+      console.warn('Failed to create function with dependencies:', error);
+      // Fallback to original function
+      functionCode = fnString;
+    }
 
     return {
-      functionCode,
+      functionCode: `const fn = ${functionCode};`,
       dependencies,
     };
   }
@@ -260,7 +306,7 @@ export class WorkerThreadManager {
     context: Record<string, AnyValue> = {}
   ): Promise<void> {
     // Serialize the function
-    const { functionCode, dependencies } = this.serializeFunction(fn);
+    const { functionCode, dependencies } = await this.serializeFunction(fn);
 
     // Serialize variables following multithreading library's approach
     const serializedVariables = this.serializeVariables(context);
@@ -413,6 +459,12 @@ export class WorkerThreadManager {
       'RegExp',
       'Error',
       'Promise',
+      'toString',
+      'valueOf',
+      'toJSON',
+      'hasOwnProperty',
+      'isPrototypeOf',
+      'propertyIsEnumerable',
     ];
     return globalFunctions.includes(funcName);
   }
@@ -600,7 +652,9 @@ export class WorkerThreadManager {
   async shutdown(): Promise<void> {
     this.isShuttingDown = true;
 
-    console.log(`Shutting down ${this.workers.length} worker threads...`);
+    logger.workerThread(
+      `Shutting down ${this.workers.length} worker threads...`
+    );
 
     // Clear all message handlers immediately to prevent new executions
     this.messageHandlers.clear();
@@ -620,7 +674,7 @@ export class WorkerThreadManager {
         const onExit = (code: number) => {
           if (!resolved) {
             resolved = true;
-            console.log(`Worker ${index} exited with code ${code}`);
+            logger.workerThread(`Worker ${index} exited with code ${code}`);
             // Remove all listeners to prevent memory leaks
             worker.removeAllListeners();
             resolve();
@@ -630,7 +684,7 @@ export class WorkerThreadManager {
         // Listen for shutdown response
         const onMessage = (message: AnyValue) => {
           if (message.id === messageId && message.success) {
-            console.log(`Worker ${index} acknowledged shutdown`);
+            logger.workerThread(`Worker ${index} acknowledged shutdown`);
           }
         };
 
@@ -641,7 +695,7 @@ export class WorkerThreadManager {
         const forceTerminate = setTimeout(() => {
           if (!resolved) {
             resolved = true;
-            console.log(`Force terminating worker ${index}`);
+            logger.workerThread(`Force terminating worker ${index}`);
             worker.removeAllListeners();
             worker.terminate();
             resolve();
@@ -667,7 +721,7 @@ export class WorkerThreadManager {
     this.workers = [];
     this.workerHealth.clear();
 
-    console.log('All worker threads shutdown complete');
+    logger.workerThread('All worker threads shutdown complete');
   }
 
   /**
