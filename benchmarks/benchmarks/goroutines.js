@@ -278,6 +278,153 @@ async function benchmarkMemoryUsage() {
 // }
 
 /**
+ * Benchmark: External dependencies usage (lodash)
+ */
+async function benchmarkExternalDependencies() {
+  const lodashTasks = Array.from({ length: 4 }, () => async dataSize => {
+    const lodash = await import('lodash');
+    const _ = lodash.default;
+
+    // Generate random data
+    const numbers = Array.from(
+      { length: dataSize },
+      () => Math.random() * 1000
+    );
+    const objects = Array.from({ length: dataSize }, (_, i) => ({
+      id: i,
+      value: Math.random() * 100,
+      category: Math.floor(Math.random() * 5),
+    }));
+
+    // Perform various lodash operations
+    const sum = _.sum(numbers);
+    const mean = _.mean(numbers);
+    const max = _.max(numbers);
+    const min = _.min(numbers);
+    const chunked = _.chunk(numbers, Math.ceil(dataSize / 10));
+    const unique = _.uniq(numbers.map(n => Math.floor(n / 100)));
+    const shuffled = _.shuffle(numbers).slice(0, 100);
+    const grouped = _.groupBy(objects, 'category');
+    const sorted = _.sortBy(objects, 'value');
+    const filtered = _.filter(objects, obj => obj.value > 50);
+
+    return {
+      sum,
+      mean,
+      max,
+      min,
+      chunkCount: chunked.length,
+      uniqueCount: unique.length,
+      shuffledCount: shuffled.length,
+      groupCount: Object.keys(grouped).length,
+      sortedCount: sorted.length,
+      filteredCount: filtered.length,
+    };
+  });
+
+  const eventLoopResult = await runBenchmark(
+    'External Dependencies (Event-Loop)',
+    async () => {
+      await goAll(lodashTasks, [[10000], [10000], [10000], [10000]], {
+        useWorkerThreads: false,
+      });
+    }
+  );
+
+  const workerThreadResult = await runBenchmark(
+    'External Dependencies (Worker-Threads)',
+    async () => {
+      await goAll(lodashTasks, [[10000], [10000], [10000], [10000]], {
+        useWorkerThreads: true,
+      });
+    }
+  );
+
+  return {
+    eventLoop: eventLoopResult,
+    workerThread: workerThreadResult,
+  };
+}
+
+/**
+ * Benchmark: Advanced external dependencies usage (lodash only)
+ */
+async function benchmarkAdvancedExternalDependencies() {
+  const tasks = [
+    // Basic lodash operations
+    async dataSize => {
+      const lodash = await import('lodash');
+      const _ = lodash.default;
+      const numbers = Array.from(
+        { length: dataSize },
+        () => Math.random() * 1000
+      );
+      return {
+        package: 'lodash-basic',
+        sum: _.sum(numbers),
+        mean: _.mean(numbers),
+        max: _.max(numbers),
+        operations: 3,
+      };
+    },
+    // Advanced lodash operations
+    async dataSize => {
+      const lodash = await import('lodash');
+      const _ = lodash.default;
+      const objects = Array.from({ length: dataSize }, (_, i) => ({
+        id: i,
+        value: Math.random() * 100,
+        category: Math.floor(Math.random() * 5),
+      }));
+      const values = objects.map(obj => obj.value);
+      return {
+        package: 'lodash-advanced',
+        sum: _.sum(values),
+        mean: _.mean(values),
+        max: _.max(values),
+        operations: 3,
+      };
+    },
+    // Complex lodash operations
+    async dataSize => {
+      const lodash = await import('lodash');
+      const _ = lodash.default;
+      const data = Array.from({ length: dataSize }, () => Math.random() * 1000);
+      return {
+        package: 'lodash-complex',
+        sum: _.sum(data),
+        mean: _.mean(data),
+        max: _.max(data),
+        operations: 3,
+      };
+    },
+  ];
+
+  const eventLoopResult = await runBenchmark(
+    'Advanced External Dependencies (Event-Loop)',
+    async () => {
+      await goAll(tasks, [[5000], [5000], [5000]], {
+        useWorkerThreads: false,
+      });
+    }
+  );
+
+  const workerThreadResult = await runBenchmark(
+    'Advanced External Dependencies (Worker-Threads)',
+    async () => {
+      await goAll(tasks, [[5000], [5000], [5000]], {
+        useWorkerThreads: true,
+      });
+    }
+  );
+
+  return {
+    eventLoop: eventLoopResult,
+    workerThread: workerThreadResult,
+  };
+}
+
+/**
  * Benchmark: Mixed workload (CPU + I/O)
  */
 async function benchmarkMixedWorkload() {
@@ -363,6 +510,9 @@ export async function runGoroutineBenchmarks() {
     console.log(chalk.yellow('\n⚡ Performance Comparison Benchmarks:'));
     results.cpuIntensive = await benchmarkCpuIntensiveComparison();
     results.mixedWorkload = await benchmarkMixedWorkload();
+    results.externalDependencies = await benchmarkExternalDependencies();
+    results.advancedExternalDependencies =
+      await benchmarkAdvancedExternalDependencies();
 
     // Scaling benchmarks
     console.log(chalk.yellow('\n📈 Scaling Benchmarks:'));
