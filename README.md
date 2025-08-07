@@ -106,8 +106,8 @@ await initializeParallelScheduler({ useWorkerThreads: true });
 
 const result = await go(
   async () => {
-    const fs = await import('node:fs');
-    const crypto = await import('node:crypto');
+    const fs = require('node:fs');
+    const crypto = require('node:crypto');
 
     return {
       fileExists: fs.existsSync('/tmp/test'),

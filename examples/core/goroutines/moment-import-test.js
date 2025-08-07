@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-var-requires */
 // @ts-check
 import {
   go,
@@ -21,8 +22,10 @@ async function testMomentImports() {
     console.log('\n1. Testing basic moment import...');
     const result1 = await go(
       async () => {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
         const moment = require('moment');
+        const { sleep } = require('../../../dist/index.js');
+
+        await sleep(100);
         console.log('Moment imported successfully in worker thread');
         return {
           version: moment.version,
