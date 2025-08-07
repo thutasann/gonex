@@ -38,6 +38,7 @@ if (parentPort) {
 
   // Get user's project directory from worker data
   const userProjectDir = workerData?.userProjectDir || process.cwd();
+  const currentWorkingDir = workerData?.currentWorkingDir || process.cwd();
 
   // Ensure essential globals are available
   if (typeof Promise === 'undefined') {
@@ -143,6 +144,7 @@ if (parentPort) {
                 
                 // Set up module resolution to use user's project directory
                 const userProjectDir = '${userProjectDir}';
+                const currentWorkingDir = '${currentWorkingDir}';
                 
                 // Override require to resolve from user's project directory
                 const originalRequire = require;
@@ -152,6 +154,38 @@ if (parentPort) {
                   } catch (error) {
                     // Try resolving from user's project directory
                     const path = require('path');
+                    
+                    // Handle local files (relative paths)
+                    if (id.startsWith('./') || id.startsWith('../') || id.endsWith('.js')) {
+                      // For local files, try multiple resolution strategies
+                      const possiblePaths = [
+                        // Try relative to current working directory (where the test is running)
+                        path.resolve(currentWorkingDir, id),
+                        // Try relative to current working directory
+                        path.resolve(process.cwd(), id),
+                        // Try relative to user project directory
+                        path.resolve(userProjectDir, id),
+                        // Try relative to examples directory if we're in examples
+                        path.resolve(userProjectDir, 'examples', id),
+                        // Try relative to the directory containing the test file
+                        path.resolve(userProjectDir, 'examples', 'core', 'goroutines', id),
+                        // Try relative to the current working directory with subdirectories
+                        path.resolve(currentWorkingDir, 'core', 'goroutines', id),
+                      ];
+                      
+                      for (const modulePath of possiblePaths) {
+                        try {
+                          return originalRequire(modulePath);
+                        } catch (localError) {
+                          // Continue to next path
+                        }
+                      }
+                      
+                      // If all attempts fail, throw the original error
+                      throw error;
+                    }
+                    
+                    // For npm packages, try node_modules directories
                     const modulePath = path.resolve(userProjectDir, 'node_modules', id);
                     try {
                       return originalRequire(modulePath);
@@ -162,6 +196,8 @@ if (parentPort) {
                     }
                   }
                 };
+                
+
                 
                 // Resolve function arguments
                 const resolvedArgs = args.map(arg => {

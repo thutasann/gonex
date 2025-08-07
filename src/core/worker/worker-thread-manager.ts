@@ -134,10 +134,14 @@ export class WorkerThreadManager {
     // Get the user's project directory (where the go() function is called from)
     const userProjectDir = process.cwd();
 
+    // Get the current working directory for resolving relative imports
+    const currentWorkingDir = process.cwd();
+
     const worker = new Worker(join(__dirname, './worker.js'), {
       workerData: {
         workerId,
         userProjectDir, // Pass the user's project directory
+        currentWorkingDir, // Pass the current working directory
       },
     });
 
