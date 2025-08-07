@@ -65,9 +65,9 @@ yarn add gonex
 pnpm add gonex
 ```
 
-## Quick Start
+## 🚀 Quick Start
 
-````typescript
+```typescript
 import { go, channel, select, waitGroup } from 'gonex';
 
 // Simple goroutine (event-loop)
@@ -99,7 +99,12 @@ for (let i = 0; i < 3; i++) {
 await wg.wait();
 console.log('All workers completed');
 
-// External imports in worker threads
+await shutdownParallelScheduler();
+```
+
+## 🚀 External imports in worker threads
+
+```typescript
 import { initializeParallelScheduler, shutdownParallelScheduler } from 'gonex';
 
 await initializeParallelScheduler({ useWorkerThreads: true });
@@ -117,8 +122,7 @@ const result = await go(
   [],
   { useWorkerThreads: true }
 );
-
-await shutdownParallelScheduler();
+```
 
 ## 🚀 Parallelism Examples
 
@@ -148,7 +152,7 @@ const heavyTasks = [
 // Execute in parallel using worker threads
 const results = await goAll(heavyTasks, [], { useWorkerThreads: true });
 console.log('All tasks completed in parallel!');
-````
+```
 
 ### Performance Comparison
 
@@ -164,7 +168,7 @@ const parallelResults = await goAll(tasks, [] { useWorkerThreads: true });
 // Execution time: ~6 seconds (2.6x faster!)
 ```
 
-## Architecture
+## 🚀 Architecture
 
 This package is built with enterprise-level architecture principles:
 
