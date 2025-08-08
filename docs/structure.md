@@ -1,4 +1,4 @@
-# Folder Structure Documentation
+# Folder Structure Documentation for Gonex
 
 ## Overview
 
