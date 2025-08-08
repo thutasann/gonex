@@ -258,11 +258,40 @@ export class WorkerThreadManager {
       }
       this.contextRegistry.set(contextId, ctx);
 
+      // Extract context values if available
+      const contextValues: Record<string, AnyValue> = {};
+      if (ctx.value && typeof ctx.value === 'function') {
+        // Try to extract common context values
+        const commonKeys = [
+          'user',
+          'requestId',
+          'session',
+          'environment',
+          'userId',
+          'config',
+          'auth',
+          'counter',
+          'level',
+          'final',
+        ];
+        for (const key of commonKeys) {
+          try {
+            const value = ctx.value(key);
+            if (value !== null && value !== undefined) {
+              contextValues[key] = value;
+            }
+          } catch (error) {
+            // Ignore errors when accessing context values
+          }
+        }
+      }
+
       return {
         __isContext: true,
         contextId,
         deadline: ctx.deadline ? ctx.deadline() : [undefined, false],
         err: ctx.err ? ctx.err() : null,
+        values: contextValues,
         // We'll need to handle done() channel separately
       };
     }
@@ -533,11 +562,40 @@ export class WorkerThreadManager {
     const ctx = this.contextRegistry.get(contextId);
     if (!ctx) return;
 
+    // Extract current context values
+    const contextValues: Record<string, AnyValue> = {};
+    if (ctx.value && typeof ctx.value === 'function') {
+      // Try to extract common context values
+      const commonKeys = [
+        'user',
+        'requestId',
+        'session',
+        'environment',
+        'userId',
+        'config',
+        'auth',
+        'counter',
+        'level',
+        'final',
+      ];
+      for (const key of commonKeys) {
+        try {
+          const value = ctx.value(key);
+          if (value !== null && value !== undefined) {
+            contextValues[key] = value;
+          }
+        } catch (error) {
+          // Ignore errors when accessing context values
+        }
+      }
+    }
+
     // Get current context state
     const currentState = {
       contextId,
       deadline: ctx.deadline ? ctx.deadline() : [undefined, false],
       err: ctx.err ? ctx.err() : null,
+      values: contextValues,
     };
 
     // Broadcast to all workers

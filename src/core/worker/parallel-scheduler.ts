@@ -87,6 +87,9 @@ export class ParallelScheduler {
         }
       });
 
+      // Set execution mode to worker thread
+      logger.setExecutionMode('worker-thread');
+
       log.parallel(`Initialized with ${threadCount} worker threads`, {
         threadCount,
       });

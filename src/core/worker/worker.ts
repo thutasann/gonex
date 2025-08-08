@@ -1,6 +1,5 @@
 /* eslint-disable no-case-declarations */
 import { parentPort, workerData } from 'worker_threads';
-import { logger } from '../../utils';
 
 /**
  * Create a proxy context object for worker threads
@@ -233,6 +232,8 @@ if (parentPort) {
                   } else if (arg && typeof arg === 'object' && arg.__isContext) {
                     // Create proxy context for context objects with live updates
                     const contextId = arg.contextId;
+                    const contextValues = arg.values || {};
+                    
                     return {
                       deadline: () => {
                         const state = contextStateRegistry.get(contextId);
@@ -243,10 +244,25 @@ if (parentPort) {
                         const state = contextStateRegistry.get(contextId);
                         return state ? state.err : (arg.err || null);
                       },
-                      value: () => null,
+                      value: (key) => {
+                        // First check if we have a value in the serialized context
+                        if (contextValues[key] !== undefined) {
+                          return contextValues[key];
+                        }
+                        
+                        // Then check if we have updated values from the main thread
+                        const state = contextStateRegistry.get(contextId);
+                        if (state && state.values && state.values[key] !== undefined) {
+                          return state.values[key];
+                        }
+                        
+                        // Fallback to null if no value found
+                        return null;
+                      },
                       __isProxyContext: true,
                       __originalContext: arg,
                       __contextId: contextId,
+                      __contextValues: contextValues,
                     };
                   }
                   return arg;
@@ -308,8 +324,6 @@ if (parentPort) {
             success: true,
             workerId: workerData?.workerId || 0,
           });
-          // Exit immediately after sending response
-          logger.warn(`Worker ${workerData?.workerId || 0} shutting down...`);
           process.exit(0);
           break;
 
