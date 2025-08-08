@@ -327,22 +327,6 @@ async function main() {
     console.log('\n4. Parallel Batch Processing:');
     const batchWg = waitGroup();
 
-    // CPU-intensive batch processing function
-    async function processBatch(batchId, items) {
-      let totalResult = 0;
-      for (let i = 0; i < items.length; i++) {
-        // Simulate processing each item
-        for (let j = 0; j < 1000000; j++) {
-          totalResult += Math.pow(j, 0.3) * Math.exp(-j * 0.0001);
-        }
-      }
-      return {
-        batchId,
-        itemCount: items.length,
-        result: totalResult.toFixed(2),
-      };
-    }
-
     // Process multiple batches in parallel using worker threads
     const batches = [
       { id: 1, items: ['A', 'B', 'C'] },
@@ -363,14 +347,35 @@ async function main() {
 
             // Process batch using worker thread
             const result = await go(
-              () => processBatch(batch.id, batch.items),
-              [],
+              async (batchId, items) => {
+                // CPU-intensive batch processing function
+                async function processBatch() {
+                  console.log('batchId', batchId);
+                  console.log('items', items);
+                  let totalResult = 0;
+                  for (let i = 0; i < items.length; i++) {
+                    // Simulate processing each item
+                    for (let j = 0; j < 1000000; j++) {
+                      totalResult += Math.pow(j, 0.3) * Math.exp(-j * 0.0001);
+                    }
+                  }
+                  return {
+                    batchId,
+                    itemCount: items.length,
+                    result: totalResult.toFixed(2),
+                  };
+                }
+                return await processBatch();
+              },
+              [batch.id, batch.items],
               {
                 useWorkerThreads: true,
               }
             );
 
-            console.log(`   ✅ Batch ${batch.id} completed: ${result.result}`);
+            console.log(
+              `   ✅ Batch ${batch.id} completed: ${JSON.stringify(result, null, 2)}`
+            );
           } catch (error) {
             console.log(`   ❌ Batch ${batch.id} failed: ${error.message}`);
           } finally {
