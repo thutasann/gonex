@@ -1,6 +1,10 @@
 import os from 'os';
 import { DEFAULT_TIMEOUT, log, validateTimeout } from '../../utils';
 import { logger } from '../../utils/logger';
+import {
+  clearContextCancellationCallback,
+  setContextCancellationCallback,
+} from '../context';
 import { WorkerThreadManager } from './worker-thread-manager';
 
 /**
@@ -75,6 +79,17 @@ export class ParallelScheduler {
       });
 
       await this.workerThreadManager.start(threadCount);
+
+      // Set up context cancellation callback for worker threads
+      setContextCancellationCallback((contextId: string) => {
+        if (this.workerThreadManager) {
+          this.workerThreadManager.updateContextState(contextId);
+        }
+      });
+
+      // Set execution mode to worker thread
+      logger.setExecutionMode('worker-thread');
+
       log.parallel(`Initialized with ${threadCount} worker threads`, {
         threadCount,
       });
@@ -200,6 +215,7 @@ export class ParallelScheduler {
   async shutdown(): Promise<void> {
     if (this.workerThreadManager) {
       await this.workerThreadManager.shutdown();
+      clearContextCancellationCallback(); // Clear context cancellation callback on shutdown
     }
     this.isInitialized = false;
   }

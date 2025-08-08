@@ -92,6 +92,7 @@ export class WorkerThreadManager {
   private healthMonitoringInterval: NodeJS.Timeout | null = null;
   private currentWorkerIndex = 0;
   private invocationCount = 0;
+  private contextRegistry: Map<string, AnyValue> | null = null;
 
   constructor(config: Partial<WorkerThreadConfig> = {}) {
     this.config = {
@@ -236,6 +237,68 @@ export class WorkerThreadManager {
   }
 
   /**
+   * Serialize context objects for worker thread communication
+   */
+  private serializeContext(ctx: AnyValue): AnyValue {
+    if (
+      ctx &&
+      typeof ctx === 'object' &&
+      'err' in ctx &&
+      'done' in ctx &&
+      'deadline' in ctx
+    ) {
+      // This is a context object - serialize it with its actual ID
+      const contextId = ctx.getContextId
+        ? ctx.getContextId()
+        : `ctx_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+      // Store the context reference for later updates
+      if (!this.contextRegistry) {
+        this.contextRegistry = new Map();
+      }
+      this.contextRegistry.set(contextId, ctx);
+
+      // Extract context values if available
+      const contextValues: Record<string, AnyValue> = {};
+      if (ctx.value && typeof ctx.value === 'function') {
+        // Try to extract common context values
+        const commonKeys = [
+          'user',
+          'requestId',
+          'session',
+          'environment',
+          'userId',
+          'config',
+          'auth',
+          'counter',
+          'level',
+          'final',
+        ];
+        for (const key of commonKeys) {
+          try {
+            const value = ctx.value(key);
+            if (value !== null && value !== undefined) {
+              contextValues[key] = value;
+            }
+          } catch (error) {
+            // Ignore errors when accessing context values
+          }
+        }
+      }
+
+      return {
+        __isContext: true,
+        contextId,
+        deadline: ctx.deadline ? ctx.deadline() : [undefined, false],
+        err: ctx.err ? ctx.err() : null,
+        values: contextValues,
+        // We'll need to handle done() channel separately
+      };
+    }
+    return ctx;
+  }
+
+  /**
    * Serialize arguments and extract function dependencies
    *
    * @param args - Arguments to serialize
@@ -260,6 +323,15 @@ export class WorkerThreadManager {
 
         // Replace the function with its name in the arguments
         serializedArgs.push(funcName);
+      } else if (
+        arg &&
+        typeof arg === 'object' &&
+        'err' in arg &&
+        'done' in arg &&
+        'deadline' in arg
+      ) {
+        // This is a context object - serialize it
+        serializedArgs.push(this.serializeContext(arg));
       } else {
         serializedArgs.push(arg);
       }
@@ -288,6 +360,15 @@ export class WorkerThreadManager {
           wasType: 'function',
           value: value.toString(),
         };
+      } else if (
+        value &&
+        typeof value === 'object' &&
+        'err' in value &&
+        'done' in value &&
+        'deadline' in value
+      ) {
+        // This is a context object - serialize it
+        serialized[key] = this.serializeContext(value);
       } else {
         serialized[key] = value;
       }
@@ -468,6 +549,63 @@ export class WorkerThreadManager {
       'propertyIsEnumerable',
     ];
     return globalFunctions.includes(funcName);
+  }
+
+  /**
+   * Update context state and broadcast to all workers
+   */
+  public updateContextState(contextId: string): void {
+    if (!this.contextRegistry || !this.contextRegistry.has(contextId)) {
+      return;
+    }
+
+    const ctx = this.contextRegistry.get(contextId);
+    if (!ctx) return;
+
+    // Extract current context values
+    const contextValues: Record<string, AnyValue> = {};
+    if (ctx.value && typeof ctx.value === 'function') {
+      // Try to extract common context values
+      const commonKeys = [
+        'user',
+        'requestId',
+        'session',
+        'environment',
+        'userId',
+        'config',
+        'auth',
+        'counter',
+        'level',
+        'final',
+      ];
+      for (const key of commonKeys) {
+        try {
+          const value = ctx.value(key);
+          if (value !== null && value !== undefined) {
+            contextValues[key] = value;
+          }
+        } catch (error) {
+          // Ignore errors when accessing context values
+        }
+      }
+    }
+
+    // Get current context state
+    const currentState = {
+      contextId,
+      deadline: ctx.deadline ? ctx.deadline() : [undefined, false],
+      err: ctx.err ? ctx.err() : null,
+      values: contextValues,
+    };
+
+    // Broadcast to all workers
+    this.workers.forEach(worker => {
+      worker.postMessage({
+        id: this.generateMessageId(),
+        type: 'contextUpdate',
+        contextState: currentState,
+      });
+    });
   }
 
   /**

@@ -1,6 +1,28 @@
 /* eslint-disable no-case-declarations */
 import { parentPort, workerData } from 'worker_threads';
-import { logger } from '../../utils';
+
+/**
+ * Create a proxy context object for worker threads
+ */
+function createProxyContext(serializedContext: AnyValue): AnyValue {
+  if (
+    !serializedContext ||
+    typeof serializedContext !== 'object' ||
+    !serializedContext.__isContext
+  ) {
+    return serializedContext;
+  }
+
+  // Create a proxy context that mimics the original context interface
+  return {
+    deadline: () => serializedContext.deadline || [undefined, false],
+    done: () => null, // We'll implement this later if needed
+    err: () => serializedContext.err || null,
+    value: () => null, // We'll implement this later if needed
+    __isProxyContext: true,
+    __originalContext: serializedContext,
+  };
+}
 
 /**
  * Deserialize functions from the context
@@ -23,6 +45,9 @@ function deserializeFunctions(
       } else {
         deserialized[key] = value;
       }
+    } else if (value && typeof value === 'object' && value.__isContext) {
+      // This is a serialized context - create a proxy
+      deserialized[key] = createProxyContext(value);
     } else {
       deserialized[key] = value;
     }
@@ -39,6 +64,9 @@ if (parentPort) {
   // Get user's project directory from worker data
   const userProjectDir = workerData?.userProjectDir || process.cwd();
   const currentWorkingDir = workerData?.currentWorkingDir || process.cwd();
+
+  // Context state registry for tracking context updates
+  const contextStateRegistry = new Map<string, AnyValue>();
 
   // Ensure essential globals are available
   if (typeof Promise === 'undefined') {
@@ -197,12 +225,45 @@ if (parentPort) {
                   }
                 };
                 
-
-                
-                // Resolve function arguments
+                // Resolve function arguments and handle context objects
                 const resolvedArgs = args.map(arg => {
                   if (typeof arg === 'string' && arg.startsWith('arg_func_') && globalThis[arg]) {
                     return globalThis[arg];
+                  } else if (arg && typeof arg === 'object' && arg.__isContext) {
+                    // Create proxy context for context objects with live updates
+                    const contextId = arg.contextId;
+                    const contextValues = arg.values || {};
+                    
+                    return {
+                      deadline: () => {
+                        const state = contextStateRegistry.get(contextId);
+                        return state ? state.deadline : (arg.deadline || [undefined, false]);
+                      },
+                      done: () => null,
+                      err: () => {
+                        const state = contextStateRegistry.get(contextId);
+                        return state ? state.err : (arg.err || null);
+                      },
+                      value: (key) => {
+                        // First check if we have a value in the serialized context
+                        if (contextValues[key] !== undefined) {
+                          return contextValues[key];
+                        }
+                        
+                        // Then check if we have updated values from the main thread
+                        const state = contextStateRegistry.get(contextId);
+                        if (state && state.values && state.values[key] !== undefined) {
+                          return state.values[key];
+                        }
+                        
+                        // Fallback to null if no value found
+                        return null;
+                      },
+                      __isProxyContext: true,
+                      __originalContext: arg,
+                      __contextId: contextId,
+                      __contextValues: contextValues,
+                    };
                   }
                   return arg;
                 });
@@ -238,6 +299,17 @@ if (parentPort) {
           }
           break;
 
+        case 'contextUpdate':
+          // Update context state in the registry
+          if (message.contextState && message.contextState.contextId) {
+            contextStateRegistry.set(
+              message.contextState.contextId,
+              message.contextState
+            );
+          }
+          // No response needed for context updates
+          break;
+
         case 'heartbeat':
           parentPort?.postMessage({
             id: message.id,
@@ -252,8 +324,6 @@ if (parentPort) {
             success: true,
             workerId: workerData?.workerId || 0,
           });
-          // Exit immediately after sending response
-          logger.warn(`Worker ${workerData?.workerId || 0} shutting down...`);
           process.exit(0);
           break;
 

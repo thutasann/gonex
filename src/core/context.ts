@@ -60,6 +60,29 @@ export type CancelFunc = () => void;
 export type CancelCauseFunc = (cause: Error) => void;
 
 /**
+ * Global callback for context cancellation notifications
+ */
+let contextCancellationCallback:
+  | ((contextId: string, error: Error | null) => void)
+  | null = null;
+
+/**
+ * Set the context cancellation callback
+ */
+export function setContextCancellationCallback(
+  callback: (contextId: string, error: Error | null) => void
+): void {
+  contextCancellationCallback = callback;
+}
+
+/**
+ * Clear the context cancellation callback
+ */
+export function clearContextCancellationCallback(): void {
+  contextCancellationCallback = null;
+}
+
+/**
  * Base context implementation
  */
 class BaseContext implements Context {
@@ -141,9 +164,11 @@ class CancelableContext implements Context {
   private values: Map<AnyValue, AnyValue> = new Map();
   private deadlineTime: Date | undefined;
   private timeoutId: NodeJS.Timeout | null = null;
+  private contextId: string;
 
   constructor(parent: Context, options: ContextOptions = {}) {
     this.parent = parent;
+    this.contextId = `ctx_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
     // set deadline if provided
     if (options.deadline) {
@@ -173,6 +198,13 @@ class CancelableContext implements Context {
 
     // Set up parent cancellation
     this.setupParentCancellation();
+  }
+
+  /**
+   * Get the context ID for worker thread communication
+   */
+  getContextId(): string {
+    return this.contextId;
   }
 
   deadline(): [Date | undefined, boolean] {
@@ -218,11 +250,16 @@ class CancelableContext implements Context {
    * Cancel the context and all its children
    */
   cancel(cause?: Error): void {
-    if (this.err !== null) {
+    if (this._err !== null) {
       return; // Already canceled
     }
 
     this._err = cause || Canceled;
+
+    // Call the global callback
+    if (contextCancellationCallback) {
+      contextCancellationCallback(this.contextId, this._err);
+    }
 
     // Cancel all children
     for (const child of this.children) {
@@ -263,11 +300,15 @@ class CancelableContext implements Context {
    */
   private setupParentCancellation(): void {
     const parentDone = this.parent.done();
-    if (parentDone) {
-      // Monitor parent cancellation
+    if (parentDone && this.parent !== Background) {
+      // Monitor parent cancellation only if parent is not Background
       go(async () => {
-        await parentDone.receive();
-        this.cancel(this.parent.err() as AnyValue);
+        try {
+          await parentDone.receive();
+          this.cancel(this.parent.err() as AnyValue);
+        } catch (error) {
+          // Ignore channel errors - parent might be cancelled already
+        }
       });
     }
   }
