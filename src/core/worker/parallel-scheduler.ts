@@ -1,7 +1,6 @@
 import os from 'os';
 import { DEFAULT_TIMEOUT, log, validateTimeout } from '../../utils';
 import { logger } from '../../utils/logger';
-import { LoadBalancingStrategy } from './load-balancer';
 import { WorkerThreadManager } from './worker-thread-manager';
 
 /**
@@ -14,8 +13,6 @@ export type ParallelOptions = {
   threadCount?: number | 'auto';
   /** CPU affinity for worker threads */
   cpuAffinity?: boolean;
-  /** Load balancing strategy */
-  loadBalancing?: LoadBalancingStrategy;
   /** Enable shared memory */
   sharedMemory?: boolean;
   /** Timeout for worker execution */
@@ -44,7 +41,6 @@ export class ParallelScheduler {
       useWorkerThreads: false, // Default to single-threaded for backward compatibility
       threadCount: 'auto',
       cpuAffinity: false,
-      loadBalancing: 'least-busy',
       sharedMemory: true,
       timeout: DEFAULT_TIMEOUT,
       ...defaultOptions,
@@ -73,7 +69,6 @@ export class ParallelScheduler {
         minWorkers: threadCount || 2,
         maxWorkers: threadCount || 8,
         workerTimeout: config.timeout || 30000,
-        loadBalancing: config.loadBalancing || 'round-robin',
         autoScaling: true,
         cpuAffinity: config.cpuAffinity || false,
         sharedMemory: config.sharedMemory || true,

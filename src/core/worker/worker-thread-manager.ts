@@ -18,8 +18,6 @@ export type WorkerThreadConfig = {
   maxWorkers: number;
   /** Worker lifecycle timeout in milliseconds */
   workerTimeout: number;
-  /** Load balancing strategy */
-  loadBalancing: 'round-robin' | 'least-busy' | 'weighted';
   /** Enable dynamic worker scaling */
   autoScaling: boolean;
   /** Pin workers to CPU cores */
@@ -100,7 +98,6 @@ export class WorkerThreadManager {
       minWorkers: 2,
       maxWorkers: 8,
       workerTimeout: 30000,
-      loadBalancing: 'least-busy',
       autoScaling: true,
       cpuAffinity: false,
       sharedMemory: true,

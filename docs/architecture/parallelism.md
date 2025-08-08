@@ -62,7 +62,6 @@ interface WorkerThreadConfig {
   minWorkers: number; // Minimum workers per thread
   maxWorkers: number; // Maximum workers per thread
   workerTimeout: number; // Worker lifecycle timeout
-  loadBalancing: 'round-robin' | 'least-busy' | 'weighted';
   autoScaling: boolean; // Dynamic worker scaling
   cpuAffinity: boolean; // Pin workers to CPU cores
   sharedMemory: boolean; // Enable SharedArrayBuffer
@@ -471,7 +470,6 @@ const result = await goParallel(() => expensiveComputation(), {
   threadCount: 'auto', // Use all CPU cores
   sharedMemory: true, // Use shared memory
   cpuAffinity: true, // Pin to specific cores
-  loadBalancing: 'least-busy', // Intelligent load balancing
 });
 ```
 
@@ -575,11 +573,6 @@ interface ParallelismConfig {
   sharedMemorySize: number; // Shared memory buffer size
   memoryPoolSize: number; // Memory pool size
   zeroCopy: boolean; // Enable zero-copy transfers
-
-  // Load balancing
-  loadBalancingStrategy: 'round-robin' | 'least-busy' | 'weighted';
-  workStealing: boolean; // Enable work stealing
-  autoScaling: boolean; // Dynamic thread scaling
 
   // Fault tolerance
   circuitBreaker: boolean; // Enable circuit breaker
