@@ -2,24 +2,15 @@ name: Run Examples
 
 on:
   push:
-    branches: [master, main]
-  pull_request:
-    branches: [master, main]
+    branches: [master]
 
 jobs:
   examples:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pages: write
-      id-token: write
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -27,79 +18,20 @@ jobs:
           node-version: '20.x'
           cache: 'npm'
 
-      - name: Install root project dependencies
+      - name: Install dependencies
         run: npm ci
 
-      - name: Build root project
+      - name: Build project
         run: npm run build
 
       - name: Install examples dependencies
         working-directory: ./examples
         run: npm install
 
-      - name: Make run script executable
+      - name: Make script executable
         working-directory: ./examples
         run: chmod +x run-all.sh
 
-      - name: Run all examples
+      - name: Run examples
         working-directory: ./examples
-        run: |
-          echo "🚀 Running all Gonex core examples..."
-          echo "======================================"
-
-          # Capture the output for summary
-          ./run-all.sh > examples-output.log 2>&1
-          exit_code=$?
-
-          # Display the output
-          cat examples-output.log
-
-          # Check if we have results
-          if [ $exit_code -eq 0 ]; then
-            echo ""
-            echo "✅ All examples passed successfully!"
-          else
-            echo ""
-            echo "❌ Some examples failed. Check the output above for details."
-          fi
-
-          # Save exit code for later use
-          echo "EXIT_CODE=$exit_code" >> $GITHUB_ENV
-
-      - name: Upload results as artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: example-results
-          path: |
-            examples/examples-output.log
-            examples/run-all.sh
-          retention-days: 30
-
-      - name: Display final summary
-        run: |
-          echo ""
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo "🎯 GONEX EXAMPLES CI SUMMARY"
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-          echo ""
-          echo "📊 Results:"
-          echo "- ✅ Passed: ${{ env.PASSED }}"
-          echo "- ❌ Failed: ${{ env.FAILED }}"
-          echo "- ⏭️  Skipped: ${{ env.SKIPPED }}"
-          echo "- 📁 Total: ${{ env.TOTAL }} files"
-          echo "- ⏱️  Time: ${{ env.EXEC_TIME }}"
-          echo ""
-
-          if [ "${{ env.FAILED }}" -eq 0 ] && [ "${{ env.TOTAL }}" -gt 0 ]; then
-            echo "🎉 ALL EXAMPLES PASSED! 🎉"
-            echo "🚀 Your Gonex core examples are working perfectly!"
-          elif [ "${{ env.PASSED }}" -gt 0 ]; then
-            echo "⚠️  PARTIAL SUCCESS"
-            echo "🔧 Some examples failed, but ${{ env.PASSED }} passed successfully"
-          else
-            echo "💥 ALL EXAMPLES FAILED!"
-            echo "🔧 Please check your setup and try again"
-          fi
-
-          echo ""
-          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        run: ./run-all.sh
