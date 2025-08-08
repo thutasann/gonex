@@ -287,6 +287,7 @@ main() {
         "core/semaphore:Semaphore"
         "core/mutex:Mutex"
         "core/waitgroups:WaitGroups"
+        "core/ticker:Ticker"
     )
     
     # Run each directory
