@@ -34,7 +34,7 @@ async function testWorkerThreadContext() {
     const [ctx1, cancel1] = withCancel(Background);
 
     go(
-      async () => {
+      async context => {
         const { sleep } = require('../../../dist/index.js');
         try {
           console.log('   Starting work with context (worker thread)...');
@@ -45,7 +45,7 @@ async function testWorkerThreadContext() {
             console.log(`   Working... step ${i + 1}`);
 
             // Check if context was cancelled
-            const err = ctx1.err();
+            const err = context.err();
             console.log(
               `   Context error at step ${i + 1}:`,
               err ? err.message : 'null'
@@ -62,7 +62,7 @@ async function testWorkerThreadContext() {
           console.log(`   Work failed: ${error.message}`);
         }
       },
-      [],
+      [ctx1],
       { useWorkerThreads: true }
     );
 
@@ -80,7 +80,7 @@ async function testWorkerThreadContext() {
     const [ctx2] = withTimeout(Background, 300); // 300ms timeout
 
     go(
-      async () => {
+      async context => {
         const { sleep } = require('../../../dist/index.js');
         try {
           console.log(
@@ -93,7 +93,7 @@ async function testWorkerThreadContext() {
             console.log(`   Working... step ${i + 1}`);
 
             // Check if context was cancelled (timeout)
-            const err = ctx2.err();
+            const err = context.err();
             console.log(
               `   Context error at step ${i + 1}:`,
               err ? err.message : 'null'
@@ -110,7 +110,7 @@ async function testWorkerThreadContext() {
           console.log(`   Work failed: ${error.message}`);
         }
       },
-      [],
+      [ctx2],
       { useWorkerThreads: true }
     );
 
@@ -125,7 +125,7 @@ async function testWorkerThreadContext() {
     for (let i = 0; i < 3; i++) {
       promises.push(
         go(
-          async workerId => {
+          async (workerId, context) => {
             const { sleep } = require('../../../dist/index.js');
             try {
               console.log(`   Worker ${workerId} starting...`);
@@ -136,7 +136,7 @@ async function testWorkerThreadContext() {
                 console.log(`   Worker ${workerId}... step ${j + 1}`);
 
                 // Check if context was cancelled
-                const err = ctx3.err();
+                const err = context.err();
                 if (err) {
                   console.log(
                     `   Worker ${workerId} cancelled: ${err.message}`
@@ -152,7 +152,7 @@ async function testWorkerThreadContext() {
               return { workerId, status: 'failed', error: error.message };
             }
           },
-          [i],
+          [i, ctx3],
           { useWorkerThreads: true }
         )
       );
@@ -173,7 +173,7 @@ async function testWorkerThreadContext() {
     const [ctx4, cancel4] = withCancel(Background);
 
     go(
-      async () => {
+      async context => {
         try {
           console.log('   Starting heavy computation with context...');
 
@@ -190,7 +190,7 @@ async function testWorkerThreadContext() {
             );
 
             // Check if context was cancelled
-            const err = ctx4.err();
+            const err = context.err();
             if (err) {
               console.log(`   Heavy computation cancelled: ${err.message}`);
               return;
@@ -202,7 +202,7 @@ async function testWorkerThreadContext() {
           console.log(`   Heavy computation failed: ${error.message}`);
         }
       },
-      [],
+      [ctx4],
       { useWorkerThreads: true }
     );
 

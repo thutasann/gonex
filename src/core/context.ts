@@ -60,6 +60,29 @@ export type CancelFunc = () => void;
 export type CancelCauseFunc = (cause: Error) => void;
 
 /**
+ * Global callback for context cancellation notifications
+ */
+let contextCancellationCallback:
+  | ((contextId: string, error: Error | null) => void)
+  | null = null;
+
+/**
+ * Set the context cancellation callback
+ */
+export function setContextCancellationCallback(
+  callback: (contextId: string, error: Error | null) => void
+): void {
+  contextCancellationCallback = callback;
+}
+
+/**
+ * Clear the context cancellation callback
+ */
+export function clearContextCancellationCallback(): void {
+  contextCancellationCallback = null;
+}
+
+/**
  * Base context implementation
  */
 class BaseContext implements Context {
@@ -141,9 +164,11 @@ class CancelableContext implements Context {
   private values: Map<AnyValue, AnyValue> = new Map();
   private deadlineTime: Date | undefined;
   private timeoutId: NodeJS.Timeout | null = null;
+  private contextId: string;
 
   constructor(parent: Context, options: ContextOptions = {}) {
     this.parent = parent;
+    this.contextId = `ctx_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
     // set deadline if provided
     if (options.deadline) {
@@ -173,6 +198,13 @@ class CancelableContext implements Context {
 
     // Set up parent cancellation
     this.setupParentCancellation();
+  }
+
+  /**
+   * Get the context ID for worker thread communication
+   */
+  getContextId(): string {
+    return this.contextId;
   }
 
   deadline(): [Date | undefined, boolean] {
@@ -223,6 +255,11 @@ class CancelableContext implements Context {
     }
 
     this._err = cause || Canceled;
+
+    // Call the global callback
+    if (contextCancellationCallback) {
+      contextCancellationCallback(this.contextId, this._err);
+    }
 
     // Cancel all children
     for (const child of this.children) {
