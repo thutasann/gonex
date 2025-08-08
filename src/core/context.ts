@@ -218,7 +218,7 @@ class CancelableContext implements Context {
    * Cancel the context and all its children
    */
   cancel(cause?: Error): void {
-    if (this.err !== null) {
+    if (this._err !== null) {
       return; // Already canceled
     }
 
@@ -263,11 +263,15 @@ class CancelableContext implements Context {
    */
   private setupParentCancellation(): void {
     const parentDone = this.parent.done();
-    if (parentDone) {
-      // Monitor parent cancellation
+    if (parentDone && this.parent !== Background) {
+      // Monitor parent cancellation only if parent is not Background
       go(async () => {
-        await parentDone.receive();
-        this.cancel(this.parent.err() as AnyValue);
+        try {
+          await parentDone.receive();
+          this.cancel(this.parent.err() as AnyValue);
+        } catch (error) {
+          // Ignore channel errors - parent might be cancelled already
+        }
       });
     }
   }
