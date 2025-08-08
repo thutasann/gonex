@@ -4,7 +4,7 @@ import {
   initializeParallelScheduler,
   shutdownParallelScheduler,
 } from '../../../../dist/index.js';
-import heavyWorkerThreadTasks from '../../../utils/heavy_worker_thread_tasks.js';
+import heavyWorkerThreadTasks from '../../utils/heavy_worker_thread_tasks.js';
 
 console.log('=== Performance Test: Optimized Worker Threads ===\n');
 

@@ -23,8 +23,44 @@ export type ParallelOptions = {
   timeout?: number;
 };
 
-/** available cpus  */
+/**
+ * Configuration for parallel scheduler
+ */
+type SchedulerConfig = Required<ParallelOptions>;
+
+/**
+ * Execution mode types
+ */
+type ExecutionMode = 'worker-thread' | 'event-loop';
+
+/**
+ * Available CPUs
+ */
 const cpus = os.cpus();
+
+/**
+ * Calculate optimal thread count based on CPU cores
+ */
+function calculateThreadCount(requestedCount: number | 'auto'): number {
+  if (requestedCount === 'auto') {
+    return Math.max(2, Math.min(8, cpus.length));
+  }
+  return requestedCount;
+}
+
+/**
+ * Create default scheduler configuration
+ */
+function createDefaultConfig(options: ParallelOptions = {}): SchedulerConfig {
+  return {
+    useWorkerThreads: false, // Default to single-threaded for backward compatibility
+    threadCount: 'auto',
+    cpuAffinity: false,
+    sharedMemory: true,
+    timeout: DEFAULT_TIMEOUT,
+    ...options,
+  };
+}
 
 /**
  * High-performance parallel scheduler
@@ -38,17 +74,44 @@ const cpus = os.cpus();
 export class ParallelScheduler {
   private workerThreadManager: WorkerThreadManager | null = null;
   private isInitialized = false;
-  private defaultOptions: ParallelOptions;
+  private defaultConfig: SchedulerConfig;
 
   constructor(defaultOptions: ParallelOptions = {}) {
-    this.defaultOptions = {
-      useWorkerThreads: false, // Default to single-threaded for backward compatibility
-      threadCount: 'auto',
-      cpuAffinity: false,
-      sharedMemory: true,
-      timeout: DEFAULT_TIMEOUT,
-      ...defaultOptions,
-    };
+    this.defaultConfig = createDefaultConfig(defaultOptions);
+  }
+
+  /**
+   * Initialize worker thread manager
+   */
+  private async initializeWorkerThreads(
+    config: SchedulerConfig
+  ): Promise<void> {
+    const threadCount = calculateThreadCount(config.threadCount);
+
+    this.workerThreadManager = new WorkerThreadManager({
+      minWorkers: threadCount,
+      maxWorkers: threadCount,
+      workerTimeout: config.timeout,
+      autoScaling: true,
+      cpuAffinity: config.cpuAffinity,
+      sharedMemory: config.sharedMemory,
+    });
+
+    await this.workerThreadManager.start(threadCount);
+
+    // Set up context cancellation callback for worker threads
+    setContextCancellationCallback((contextId: string) => {
+      if (this.workerThreadManager) {
+        this.workerThreadManager.updateContextState(contextId);
+      }
+    });
+
+    // Set execution mode to worker thread
+    logger.setExecutionMode('worker-thread');
+
+    log.parallel(`Initialized with ${threadCount} worker threads`, {
+      threadCount,
+    });
   }
 
   /**
@@ -61,75 +124,17 @@ export class ParallelScheduler {
       return;
     }
 
-    const config = { ...this.defaultOptions, ...options };
+    const config = { ...this.defaultConfig, ...options };
 
     if (config.useWorkerThreads) {
-      const threadCount =
-        config.threadCount === 'auto'
-          ? Math.max(2, Math.min(8, cpus.length))
-          : (config.threadCount as number);
-
-      this.workerThreadManager = new WorkerThreadManager({
-        minWorkers: threadCount || 2,
-        maxWorkers: threadCount || 8,
-        workerTimeout: config.timeout || 30000,
-        autoScaling: true,
-        cpuAffinity: config.cpuAffinity || false,
-        sharedMemory: config.sharedMemory || true,
-      });
-
-      await this.workerThreadManager.start(threadCount);
-
-      // Set up context cancellation callback for worker threads
-      setContextCancellationCallback((contextId: string) => {
-        if (this.workerThreadManager) {
-          this.workerThreadManager.updateContextState(contextId);
-        }
-      });
-
-      // Set execution mode to worker thread
-      logger.setExecutionMode('worker-thread');
-
-      log.parallel(`Initialized with ${threadCount} worker threads`, {
-        threadCount,
-      });
+      await this.initializeWorkerThreads(config);
     }
 
     this.isInitialized = true;
   }
 
   /**
-   * Execute a function with parallel capabilities
-   *
-   * @param fn - Function to execute
-   * @param options - Execution options
-   * @returns Promise that resolves with the function result
-   */
-  async go<T>(
-    fn: (...args: AnyValue[]) => T | Promise<T>,
-    args: AnyValue[] = [],
-    options: ParallelOptions = {}
-  ): Promise<T> {
-    const config = { ...this.defaultOptions, ...options };
-
-    // Validate timeout if provided
-    if (config.timeout !== undefined) {
-      validateTimeout(config.timeout);
-    }
-
-    // Use worker threads if enabled
-    if (config.useWorkerThreads && this.workerThreadManager) {
-      logger.setExecutionMode('worker-thread');
-      return this.workerThreadManager.execute(fn, args, config.timeout);
-    }
-
-    // Fallback to single-threaded execution
-    logger.setExecutionMode('event-loop');
-    return this.executeSingleThreaded(fn, args);
-  }
-
-  /**
-   * Execute function in single-threaded mode (current implementation)
+   * Execute function in single-threaded mode
    *
    * @param fn - Function to execute
    * @param args - Arguments to pass to the function
@@ -156,9 +161,76 @@ export class ParallelScheduler {
   }
 
   /**
+   * Execute function using worker threads
+   *
+   * @param fn - Function to execute
+   * @param args - Arguments to pass to the function
+   * @param timeout - Timeout for execution
+   * @returns Promise that resolves with the function result
+   */
+  private async executeWithWorkerThreads<T>(
+    fn: (...args: AnyValue[]) => T | Promise<T>,
+    args: AnyValue[] = [],
+    timeout?: number
+  ): Promise<T> {
+    if (!this.workerThreadManager) {
+      throw new Error('Worker thread manager not initialized');
+    }
+
+    logger.setExecutionMode('worker-thread');
+    return this.workerThreadManager.execute(fn, args, timeout);
+  }
+
+  /**
+   * Determine execution mode and execute function
+   *
+   * @param fn - Function to execute
+   * @param args - Arguments to pass to the function
+   * @param config - Execution configuration
+   * @returns Promise that resolves with the function result
+   */
+  private async executeFunction<T>(
+    fn: (...args: AnyValue[]) => T | Promise<T>,
+    args: AnyValue[] = [],
+    config: SchedulerConfig
+  ): Promise<T> {
+    // Validate timeout if provided
+    if (config.timeout !== undefined) {
+      validateTimeout(config.timeout);
+    }
+
+    // Use worker threads if enabled and available
+    if (config.useWorkerThreads && this.workerThreadManager) {
+      return this.executeWithWorkerThreads(fn, args, config.timeout);
+    }
+
+    // Fallback to single-threaded execution
+    logger.setExecutionMode('event-loop');
+    return this.executeSingleThreaded(fn, args);
+  }
+
+  /**
+   * Execute a function with parallel capabilities
+   *
+   * @param fn - Function to execute
+   * @param args - Arguments to pass to the function
+   * @param options - Execution options
+   * @returns Promise that resolves with the function result
+   */
+  async go<T>(
+    fn: (...args: AnyValue[]) => T | Promise<T>,
+    args: AnyValue[] = [],
+    options: ParallelOptions = {}
+  ): Promise<T> {
+    const config = { ...this.defaultConfig, ...options };
+    return this.executeFunction(fn, args, config);
+  }
+
+  /**
    * Execute multiple functions in parallel
    *
    * @param fns - Array of functions to execute
+   * @param argsArray - Array of argument arrays for each function
    * @param options - Execution options
    * @returns Promise that resolves with array of results
    */
@@ -177,6 +249,7 @@ export class ParallelScheduler {
    * Execute multiple functions and return the first result
    *
    * @param fns - Array of functions to execute
+   * @param argsArray - Array of argument arrays for each function
    * @param options - Execution options
    * @returns Promise that resolves with the first result
    */
@@ -207,6 +280,24 @@ export class ParallelScheduler {
    */
   getActiveWorkerCount(): number {
     return this.workerThreadManager?.getActiveWorkerCount() || 0;
+  }
+
+  /**
+   * Get current execution mode
+   *
+   * @returns Current execution mode
+   */
+  getExecutionMode(): ExecutionMode {
+    return this.workerThreadManager ? 'worker-thread' : 'event-loop';
+  }
+
+  /**
+   * Check if worker threads are available
+   *
+   * @returns True if worker threads are initialized and available
+   */
+  isWorkerThreadsAvailable(): boolean {
+    return this.workerThreadManager !== null;
   }
 
   /**

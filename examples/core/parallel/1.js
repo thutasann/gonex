@@ -1,5 +1,9 @@
 // @ts-check
-import { initializeParallelScheduler } from '../../../dist/index.js';
+import {
+  initializeParallelScheduler,
+  shutdownParallelScheduler,
+  sleep,
+} from '../../../dist/index.js';
 
 console.log('=== Parallel Scheduler Example ===\n');
 
@@ -11,5 +15,9 @@ await initializeParallelScheduler({
   sharedMemory: true,
   timeout: 30000,
 });
+
+await sleep(500);
+
+await shutdownParallelScheduler();
 
 console.log('Parallel scheduler initialized successfully!\n');

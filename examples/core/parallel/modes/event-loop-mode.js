@@ -6,7 +6,7 @@
  */
 // @ts-check
 import { goAll } from '../../../../dist/index.js';
-import eventLoopTasks from '../../../utils/event_loop_tasks.js';
+import eventLoopTasks from '../../utils/event_loop_tasks.js';
 
 const eventLoopResults = await goAll(eventLoopTasks);
 console.log('Event Loop Results:', eventLoopResults);

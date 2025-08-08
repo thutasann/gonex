@@ -1,6 +1,10 @@
 // @ts-check
-import { goAll, initializeParallelScheduler } from '../../../dist/index.js';
-import heavy_computations from '../../utils/heavy_computations.js';
+import {
+  goAll,
+  initializeParallelScheduler,
+  shutdownParallelScheduler,
+} from '../../../dist/index.js';
+import heavy_computations from '../utils/heavy_computations.js';
 
 await initializeParallelScheduler({
   useWorkerThreads: true,
@@ -22,3 +26,5 @@ const results = await goAll(heavy_computations, [], {
 const endTime = Date.now();
 console.log(`All computations completed in ${endTime - startTime}ms`);
 console.log('Results:', results);
+
+await shutdownParallelScheduler();
