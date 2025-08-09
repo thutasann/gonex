@@ -147,6 +147,8 @@ export function createContextProxy(): string {
           };
         } else if (arg && typeof arg === 'object' && arg.__isChannel) {
           return createProxyChannel(arg);
+        } else if (arg && typeof arg === 'object' && arg.__isSemaphore) {
+          return createProxySemaphore(arg);
         }
         return arg;
       });
@@ -341,5 +343,70 @@ export function createProxyMutex(serializedMutex: AnyValue): AnyValue {
     },
     __isProxyMutex: true,
     __originalMutex: serializedMutex,
+  };
+}
+
+/**
+ * Create a proxy Semaphore object for worker threads
+ */
+export function createProxySemaphore(serializedSemaphore: AnyValue): AnyValue {
+  if (
+    !serializedSemaphore ||
+    typeof serializedSemaphore !== 'object' ||
+    !serializedSemaphore.__isSemaphore
+  ) {
+    return serializedSemaphore;
+  }
+
+  return {
+    async acquire(timeout?: number): Promise<void> {
+      // Note: This is a simplified implementation for worker threads
+      console.warn(
+        '⚠️  Semaphore in worker thread - limited synchronization guarantees'
+      );
+      // Simulate acquire delay based on available permits
+      const permits = serializedSemaphore.availablePermits || 0;
+      if (permits <= 0) {
+        // Simulate waiting when no permits available
+        const delay = Math.min(timeout || 100, 50);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+      return Promise.resolve();
+    },
+    release(): void {
+      // Note: This is a simplified implementation for worker threads
+      console.warn(
+        '⚠️  Semaphore release in worker thread - limited synchronization guarantees'
+      );
+      // No-op for worker thread semaphore
+    },
+    tryAcquire(): boolean {
+      // Note: This is a simplified implementation for worker threads
+      console.warn(
+        '⚠️  Semaphore tryAcquire in worker thread - limited synchronization guarantees'
+      );
+      // Always succeeds in worker thread context for demo purposes
+      return true;
+    },
+    getAvailablePermits(): number {
+      return serializedSemaphore.availablePermits || 0;
+    },
+    getMaxPermits(): number {
+      return serializedSemaphore.maxPermits || 1;
+    },
+    waitingCount(): number {
+      return serializedSemaphore.waitingCount || 0;
+    },
+    isFullyUtilized(): boolean {
+      return serializedSemaphore.isFullyUtilized || false;
+    },
+    reset(): void {
+      console.warn(
+        '⚠️  Semaphore reset in worker thread - no effect on main thread semaphore'
+      );
+      // No-op for worker thread semaphore
+    },
+    __isProxySemaphore: true,
+    __originalSemaphore: serializedSemaphore,
   };
 }

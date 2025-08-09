@@ -136,7 +136,7 @@ export class Semaphore {
    *
    * @returns Number of permits currently available
    */
-  geAavailablePermits(): number {
+  getAvailablePermits(): number {
     return this.availablePermits;
   }
 

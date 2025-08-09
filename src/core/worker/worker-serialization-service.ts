@@ -259,6 +259,47 @@ export class WorkerSerializationService {
   }
 
   /**
+   * Serialize Semaphore objects for worker thread communication
+   *
+   * @param semaphore - Semaphore object to serialize
+   * @returns Serialized semaphore object
+   */
+  serializeSemaphore(semaphore: AnyValue): AnyValue {
+    if (
+      semaphore &&
+      typeof semaphore === 'object' &&
+      'acquire' in semaphore &&
+      'release' in semaphore &&
+      'tryAcquire' in semaphore
+    ) {
+      // This is a semaphore object - serialize its state
+      const semaphoreId = `semaphore_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+      // Store the semaphore reference for coordination
+      if (!this.contextRegistry) {
+        this.contextRegistry = new Map();
+      }
+      this.contextRegistry.set(semaphoreId, semaphore);
+
+      return {
+        __isSemaphore: true,
+        semaphoreId,
+        availablePermits: semaphore.getAvailablePermits
+          ? semaphore.getAvailablePermits()
+          : 0,
+        maxPermits: semaphore.getMaxPermits ? semaphore.getMaxPermits() : 1,
+        waitingCount: semaphore.waitingCount ? semaphore.waitingCount() : 0,
+        isFullyUtilized: semaphore.isFullyUtilized
+          ? semaphore.isFullyUtilized()
+          : false,
+        name: semaphore.name || '',
+      };
+    }
+
+    return semaphore;
+  }
+
+  /**
    * Serialize arguments and extract function dependencies
    *
    * @param args - Arguments to serialize
@@ -310,6 +351,15 @@ export class WorkerSerializationService {
       ) {
         // This is a channel object - serialize it
         serializedArgs.push(this.serializeChannel(arg));
+      } else if (
+        arg &&
+        typeof arg === 'object' &&
+        'acquire' in arg &&
+        'release' in arg &&
+        'tryAcquire' in arg
+      ) {
+        // This is a semaphore object - serialize it
+        serializedArgs.push(this.serializeSemaphore(arg));
       } else {
         serializedArgs.push(arg);
       }
@@ -365,6 +415,15 @@ export class WorkerSerializationService {
       ) {
         // This is a channel object - serialize it
         serialized[key] = this.serializeChannel(value);
+      } else if (
+        value &&
+        typeof value === 'object' &&
+        'acquire' in value &&
+        'release' in value &&
+        'tryAcquire' in value
+      ) {
+        // This is a semaphore object - serialize it
+        serialized[key] = this.serializeSemaphore(value);
       } else {
         serialized[key] = value;
       }
