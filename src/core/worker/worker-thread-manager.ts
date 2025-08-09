@@ -88,7 +88,7 @@ export class WorkerThreadManager {
       return new Promise<void>((resolve, reject) => {
         const timeoutId = setTimeout(() => {
           reject(new Error('Worker initialization timeout'));
-        }, 10000);
+        }, 30000);
 
         const handler = (message: AnyValue) => {
           if (message.id === messageId) {
