@@ -1,13 +1,16 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-/* eslint-disable no-case-declarations */
 import { parentPort, workerData } from 'worker_threads';
 import { ContextState, WorkerMessage, WorkerResponse } from '../../types';
+import {
+  createExecutionEnvironment,
+  deserializeFunctions,
+  setupDependencies,
+} from './helpers/execution';
 
 // Global state
-const globalScope = globalThis as Record<string, any>;
+const globalScope = globalThis as Record<string, AnyValue>;
 const contextStateRegistry = new Map<string, ContextState>();
 let userFunction: string | null = null;
-let context: Record<string, any> = {};
+let context: Record<string, AnyValue> = {};
 
 // Configuration
 const userProjectDir = workerData?.userProjectDir || process.cwd();
@@ -22,199 +25,9 @@ function initializeGlobals(): void {
 
   essentialGlobals.forEach(globalName => {
     if (typeof globalScope[globalName] === 'undefined') {
-      globalScope[globalName] = (globalThis as any)[globalName];
+      globalScope[globalName] = (globalThis as AnyValue)[globalName];
     }
   });
-}
-
-/**
- * Create a proxy context object for worker threads
- */
-function createProxyContext(serializedContext: any): any {
-  if (
-    !serializedContext ||
-    typeof serializedContext !== 'object' ||
-    !serializedContext.__isContext
-  ) {
-    return serializedContext;
-  }
-
-  return {
-    deadline: () => serializedContext.deadline || [undefined, false],
-    done: () => null,
-    err: () => serializedContext.err || null,
-    value: () => null,
-    __isProxyContext: true,
-    __originalContext: serializedContext,
-  };
-}
-
-/**
- * Deserialize functions from the context
- */
-function deserializeFunctions(
-  variables: Record<string, any>
-): Record<string, any> {
-  const deserialized: Record<string, any> = {};
-
-  for (const [key, value] of Object.entries(variables)) {
-    if (typeof value === 'object' && value !== null && 'wasType' in value) {
-      if (value.wasType === 'function') {
-        try {
-          const func = new Function(`return ${value.value}`)();
-          deserialized[key] = func;
-        } catch (error) {
-          console.warn(`Failed to deserialize function ${key}:`, error);
-        }
-      } else {
-        deserialized[key] = value;
-      }
-    } else if (value && typeof value === 'object' && value.__isContext) {
-      deserialized[key] = createProxyContext(value);
-    } else {
-      deserialized[key] = value;
-    }
-  }
-
-  return deserialized;
-}
-
-/**
- * Set up dependencies in the worker scope
- */
-function setupDependencies(dependencies: Record<string, string>): void {
-  if (!dependencies || typeof dependencies !== 'object') return;
-
-  for (const [name, code] of Object.entries(dependencies)) {
-    try {
-      const func = new Function(`return ${code}`)();
-      globalScope[name] = func;
-    } catch (error) {
-      console.warn(`Failed to create dependency ${name}:`, error);
-    }
-  }
-}
-
-/**
- * Create enhanced require function for module resolution
- */
-function createEnhancedRequire(): string {
-  return `
-    const originalRequire = require;
-    require = function(id) {
-      try {
-        return originalRequire(id);
-      } catch (error) {
-        const path = require('path');
-        
-        // Handle local files (relative paths)
-        if (id.startsWith('./') || id.startsWith('../') || id.endsWith('.js')) {
-          const possiblePaths = [
-            path.resolve('${currentWorkingDir}', id),
-            path.resolve(process.cwd(), id),
-            path.resolve('${userProjectDir}', id),
-            path.resolve('${userProjectDir}', 'examples', id),
-            path.resolve('${userProjectDir}', 'examples', 'core', 'goroutines', id),
-            path.resolve('${currentWorkingDir}', 'core', 'goroutines', id),
-          ];
-          
-          for (const modulePath of possiblePaths) {
-            try {
-              return originalRequire(modulePath);
-            } catch (localError) {
-              // Continue to next path
-            }
-          }
-          
-          throw error;
-        }
-        
-        // For npm packages, try node_modules directories
-        const modulePath = path.resolve('${userProjectDir}', 'node_modules', id);
-        try {
-          return originalRequire(modulePath);
-        } catch (secondError) {
-          const examplesPath = path.resolve('${userProjectDir}', 'examples', 'node_modules', id);
-          return originalRequire(examplesPath);
-        }
-      }
-    };
-  `;
-}
-
-/**
- * Create context proxy for execution
- */
-function createContextProxy(): string {
-  return `
-    const resolvedArgs = args.map(arg => {
-      if (typeof arg === 'string' && arg.startsWith('arg_func_') && globalThis[arg]) {
-        return globalThis[arg];
-      } else if (arg && typeof arg === 'object' && arg.__isContext) {
-        const contextId = arg.contextId;
-        const contextValues = arg.values || {};
-        
-        return {
-          deadline: () => {
-            const state = contextStateRegistry.get(contextId);
-            return state ? state.deadline : (arg.deadline || [undefined, false]);
-          },
-          done: () => null,
-          err: () => {
-            const state = contextStateRegistry.get(contextId);
-            return state ? state.err : (arg.err || null);
-          },
-          value: (key) => {
-            if (contextValues[key] !== undefined) {
-              return contextValues[key];
-            }
-            
-            const state = contextStateRegistry.get(contextId);
-            if (state && state.values && state.values[key] !== undefined) {
-              return state.values[key];
-            }
-            
-            return null;
-          },
-          __isProxyContext: true,
-          __originalContext: arg,
-          __contextId: contextId,
-          __contextValues: contextValues,
-        };
-      }
-      return arg;
-    });
-  `;
-}
-
-/**
- * Create execution environment code
- */
-function createExecutionEnvironment(): string {
-  const enhancedRequire = createEnhancedRequire();
-  const contextProxy = createContextProxy();
-
-  return `
-    (async function(...args) {
-      // Ensure essential globals are available
-      var Promise = globalThis.Promise || Promise;
-      var setTimeout = globalThis.setTimeout || setTimeout;
-      var clearTimeout = globalThis.clearTimeout || clearTimeout;
-      var console = globalThis.console || console;
-      
-      // Set up module resolution
-      ${enhancedRequire}
-      
-      // Resolve function arguments and handle context objects
-      ${contextProxy}
-      
-      // Create the user function
-      ${userFunction}
-      
-      // Execute the function with the resolved arguments
-      return await fn(...resolvedArgs);
-    })
-  `;
 }
 
 /**
@@ -231,7 +44,7 @@ async function handleInit(message: WorkerMessage): Promise<WorkerResponse> {
 
   // Set up dependencies
   if (dependencies) {
-    setupDependencies(dependencies);
+    setupDependencies(globalScope, dependencies);
   }
 
   // Set up variables in context and deserialize functions
@@ -260,11 +73,15 @@ async function handleExecute(message: WorkerMessage): Promise<WorkerResponse> {
   try {
     // Set up additional dependencies if provided
     if (additionalDependencies) {
-      setupDependencies(additionalDependencies);
+      setupDependencies(globalScope, additionalDependencies);
     }
 
     // Create the execution environment
-    const executionCode = createExecutionEnvironment();
+    const executionCode = createExecutionEnvironment(
+      currentWorkingDir,
+      userProjectDir,
+      userFunction
+    );
     const fn = eval(executionCode);
     const result = await fn(...(args || []));
 

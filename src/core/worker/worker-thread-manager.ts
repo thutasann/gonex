@@ -228,7 +228,9 @@ export class WorkerThreadManager {
         // Listen for shutdown response
         const onMessage = (message: AnyValue) => {
           if (message.id === messageId && message.success) {
-            logger.workerThread(`Worker ${index} acknowledged shutdown`);
+            // logger.workerThread(`Worker ${index} acknowledged shutdown`);
+          } else {
+            logger.workerThread(`Worker ${index} failed to shutdown`);
           }
         };
 
