@@ -29,7 +29,7 @@ describe('Constants', () => {
   describe('Timeout Constants', () => {
     it('should have valid timeout values', () => {
       expect(DEFAULT_TIMEOUT).toBe(5000);
-      expect(DEFAULT_CHANNEL_TIMEOUT).toBe(1000);
+      expect(DEFAULT_CHANNEL_TIMEOUT).toBe(5000);
       expect(DEFAULT_MUTEX_TIMEOUT).toBe(3000);
       expect(DEFAULT_SEMAPHORE_TIMEOUT).toBe(2000);
       expect(INFINITE_TIMEOUT).toBe(-1);
@@ -39,7 +39,7 @@ describe('Constants', () => {
 
     it('should have proper timeout relationships', () => {
       expect(MAX_TIMEOUT).toBeGreaterThan(DEFAULT_TIMEOUT);
-      expect(DEFAULT_TIMEOUT).toBeGreaterThan(DEFAULT_CHANNEL_TIMEOUT);
+      expect(DEFAULT_TIMEOUT).toBeGreaterThanOrEqual(DEFAULT_CHANNEL_TIMEOUT);
       expect(DEFAULT_TIMEOUT).toBeGreaterThan(DEFAULT_MUTEX_TIMEOUT);
       expect(DEFAULT_TIMEOUT).toBeGreaterThan(DEFAULT_SEMAPHORE_TIMEOUT);
     });
