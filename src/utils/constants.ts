@@ -45,3 +45,9 @@ export const MIN_TIMEOUT = 0;
 export const MIN_BUFFER_SIZE = 0;
 export const MIN_CONCURRENCY_LEVEL = 1;
 export const MIN_POOL_SIZE = 1;
+
+/**
+ * RWMutex constants
+ */
+export const DEFAULT_RWMUTEX_TIMEOUT = 3000; // 3 seconds (same as mutex)
+export const MAX_READERS = 1000000; // Maximum concurrent readers

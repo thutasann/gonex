@@ -252,3 +252,69 @@ export class InvalidConcurrencyError extends ValidationError {
     this.name = 'InvalidConcurrencyError';
   }
 }
+
+export class RWMutexError extends GonexError {
+  constructor(
+    message: string,
+    code: string,
+    context?: Record<string, AnyValue>
+  ) {
+    super(message, code, context);
+    this.name = 'RWMutexError';
+  }
+}
+
+export class RWMutexReadLockTimeoutError extends RWMutexError {
+  constructor(timeout: number, mutexName?: string) {
+    super(
+      `Failed to acquire read lock within ${timeout}ms${mutexName ? ` on RWMutex "${mutexName}"` : ''}`,
+      'RWMUTEX_READ_LOCK_TIMEOUT',
+      { timeout, mutexName }
+    );
+    this.name = 'RWMutexReadLockTimeoutError';
+  }
+}
+
+export class RWMutexWriteLockTimeoutError extends RWMutexError {
+  constructor(timeout: number, mutexName?: string) {
+    super(
+      `Failed to acquire write lock within ${timeout}ms${mutexName ? ` on RWMutex "${mutexName}"` : ''}`,
+      'RWMUTEX_WRITE_LOCK_TIMEOUT',
+      { timeout, mutexName }
+    );
+    this.name = 'RWMutexWriteLockTimeoutError';
+  }
+}
+
+export class RWMutexNotReadLockedError extends RWMutexError {
+  constructor(mutexName?: string) {
+    super(
+      `RWMutex ${mutexName ? `"${mutexName}"` : ''} does not have a read lock to release`,
+      'RWMUTEX_NOT_READ_LOCKED',
+      { mutexName }
+    );
+    this.name = 'RWMutexNotReadLockedError';
+  }
+}
+
+export class RWMutexNotWriteLockedError extends RWMutexError {
+  constructor(mutexName?: string) {
+    super(
+      `RWMutex ${mutexName ? `"${mutexName}"` : ''} does not have a write lock to release`,
+      'RWMUTEX_NOT_WRITE_LOCKED',
+      { mutexName }
+    );
+    this.name = 'RWMutexNotWriteLockedError';
+  }
+}
+
+export class RWMutexTooManyReadersError extends RWMutexError {
+  constructor(maxReaders: number, mutexName?: string) {
+    super(
+      `RWMutex ${mutexName ? `"${mutexName}"` : ''} has reached maximum readers limit: ${maxReaders}`,
+      'RWMUTEX_TOO_MANY_READERS',
+      { maxReaders, mutexName }
+    );
+    this.name = 'RWMutexTooManyReadersError';
+  }
+}
