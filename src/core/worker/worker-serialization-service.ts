@@ -83,6 +83,80 @@ export class WorkerSerializationService {
   }
 
   /**
+   * Serialize RWMutex objects for worker thread communication
+   *
+   * @param mutex - RWMutex object to serialize
+   * @returns Serialized RWMutex object
+   */
+  serializeRWMutex(mutex: AnyValue): AnyValue {
+    if (
+      mutex &&
+      typeof mutex === 'object' &&
+      'rLock' in mutex &&
+      'rUnlock' in mutex &&
+      'lock' in mutex &&
+      'unlock' in mutex
+    ) {
+      // This is an RWMutex object - serialize it
+      const mutexId = `rwmutex_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+      // Store the mutex reference for coordination
+      if (!this.contextRegistry) {
+        this.contextRegistry = new Map();
+      }
+      this.contextRegistry.set(mutexId, mutex);
+
+      // Get current state
+      const state = mutex.getState
+        ? mutex.getState()
+        : {
+            readerCount: 0,
+            writerLocked: false,
+            writerWaiting: false,
+            pendingReaders: 0,
+            pendingWriters: 0,
+          };
+
+      return {
+        __isRWMutex: true,
+        mutexId,
+        state,
+        // Include name and timeout for reconstruction
+        name: mutex.name || '',
+        timeout: mutex.timeout || 3000,
+      };
+    }
+
+    // Check for regular Mutex
+    if (
+      mutex &&
+      typeof mutex === 'object' &&
+      'lock' in mutex &&
+      'unlock' in mutex &&
+      'tryLock' in mutex &&
+      !('rLock' in mutex)
+    ) {
+      // This is a regular Mutex object
+      const mutexId = `mutex_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+      if (!this.contextRegistry) {
+        this.contextRegistry = new Map();
+      }
+      this.contextRegistry.set(mutexId, mutex);
+
+      return {
+        __isMutex: true,
+        mutexId,
+        isLocked: mutex.isLocked ? mutex.isLocked() : false,
+        name: mutex.name || '',
+        timeout: mutex.timeout || 3000,
+      };
+    }
+
+    return mutex;
+  }
+
+  /**
    * Serialize context objects for worker thread communication
    *
    * @param ctx - Context object to serialize
@@ -181,6 +255,14 @@ export class WorkerSerializationService {
       ) {
         // This is a context object - serialize it
         serializedArgs.push(this.serializeContext(arg));
+      } else if (
+        arg &&
+        typeof arg === 'object' &&
+        ('rLock' in arg ||
+          ('lock' in arg && 'unlock' in arg && 'tryLock' in arg))
+      ) {
+        // This is a mutex object (RWMutex or Mutex) - serialize it
+        serializedArgs.push(this.serializeRWMutex(arg));
       } else {
         serializedArgs.push(arg);
       }
@@ -218,6 +300,14 @@ export class WorkerSerializationService {
       ) {
         // This is a context object - serialize it
         serialized[key] = this.serializeContext(value);
+      } else if (
+        value &&
+        typeof value === 'object' &&
+        ('rLock' in value ||
+          ('lock' in value && 'unlock' in value && 'tryLock' in value))
+      ) {
+        // This is a mutex object (RWMutex or Mutex) - serialize it
+        serialized[key] = this.serializeRWMutex(value);
       } else {
         serialized[key] = value;
       }

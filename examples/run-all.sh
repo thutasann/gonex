@@ -288,6 +288,7 @@ main() {
         "core/mutex:Mutex"
         "core/waitgroups:WaitGroups"
         "core/ticker:Ticker"
+        "core/rwmutex:RwMutex"
     )
     
     # Run each directory
