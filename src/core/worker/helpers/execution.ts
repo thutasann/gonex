@@ -1,5 +1,6 @@
 import {
   createContextProxy,
+  createProxyChannel,
   createProxyContext,
   createProxyMutex,
   createProxyRWMutex,
@@ -31,6 +32,8 @@ export function deserializeFunctions(
       deserialized[key] = createProxyRWMutex(value);
     } else if (value && typeof value === 'object' && value.__isMutex) {
       deserialized[key] = createProxyMutex(value);
+    } else if (value && typeof value === 'object' && value.__isChannel) {
+      deserialized[key] = createProxyChannel(value);
     } else {
       deserialized[key] = value;
     }
@@ -140,6 +143,127 @@ export function createExecutionEnvironment(
         var setTimeout = globalThis.setTimeout || setTimeout;
         var clearTimeout = globalThis.clearTimeout || clearTimeout;
         var console = globalThis.console || console;
+        
+        // Create proxy functions for worker threads
+        var createProxyChannel = function(serializedChannel) {
+          if (!serializedChannel || typeof serializedChannel !== 'object' || !serializedChannel.__isChannel) {
+            return serializedChannel;
+          }
+          
+          return {
+            async send(value, timeout) {
+              throw new Error(
+                'Channel send operations are not supported across worker thread boundaries. ' +
+                'Please use channel operations in the main thread and pass results to workers.' +
+                '\\n\\nValue: ' + value + '\\n\\nTimeout: ' + timeout
+              );
+            },
+            async receive(timeout) {
+              throw new Error(
+                'Channel receive operations are not supported across worker thread boundaries. ' +
+                'Please use channel operations in the main thread and pass results to workers.' +
+                '\\n\\nTimeout: ' + timeout
+              );
+            },
+            trySend(value) {
+              if (value !== undefined) {
+                throw new Error(
+                  'Channel send operations are not supported across worker thread boundaries. ' +
+                  'Please use channel operations in the main thread and pass results to workers.' +
+                  '\\n\\nValue: ' + value
+                );
+              }
+              return false;
+            },
+            tryReceive() {
+              return undefined;
+            },
+            close() {
+              throw new Error(
+                'Channel close operations are not supported across worker thread boundaries.' +
+                '\\n\\nChannel ID: ' + serializedChannel.channelId
+              );
+            },
+            isClosed() {
+              return serializedChannel.isClosed || false;
+            },
+            length() {
+              return serializedChannel.length || 0;
+            },
+            capacity() {
+              return serializedChannel.bufferSize || 0;
+            },
+            __isProxyChannel: true,
+            __originalChannel: serializedChannel,
+          };
+        };
+        
+        // Create a working select implementation for worker threads
+        var select = async function(cases, options = {}) {
+          const { timeout = -1, default: defaultCase } = options;
+          
+          // Simple polling implementation for worker threads
+          // This is a simplified version that works with the basic use cases
+          const startTime = Date.now();
+          const pollInterval = 1; // Start with 1ms polling
+          
+          return new Promise((resolve) => {
+            function poll() {
+              // Try all cases
+              for (let i = 0; i < cases.length; i++) {
+                const selectCase = cases[i];
+                if (!selectCase) continue;
+                
+                const { channel, operation, value, handler } = selectCase;
+                
+                if (operation === 'send') {
+                  if (value !== undefined && channel && channel.trySend) {
+                    try {
+                      if (channel.trySend(value)) {
+                        if (handler) handler(value);
+                        resolve(value);
+                        return;
+                      }
+                    } catch (error) {
+                      // Channel operation not supported, continue
+                    }
+                  }
+                } else if (operation === 'receive') {
+                  if (channel && channel.tryReceive) {
+                    const received = channel.tryReceive();
+                    if (received !== undefined) {
+                      if (handler) handler(received);
+                      resolve(received);
+                      return;
+                    }
+                  }
+                }
+              }
+              
+              // Check timeout
+              if (timeout !== -1 && Date.now() - startTime >= timeout) {
+                if (defaultCase) {
+                  defaultCase();
+                }
+                resolve(undefined);
+                return;
+              }
+              
+              // Execute default case if provided and no timeout
+              if (defaultCase && timeout === -1) {
+                defaultCase();
+                resolve(undefined);
+                return;
+              }
+              
+              // Schedule next poll
+              setTimeout(poll, pollInterval);
+            }
+            
+            // Start polling
+            poll();
+          });
+        };
         
         // Set up module resolution
         ${enhancedRequire}

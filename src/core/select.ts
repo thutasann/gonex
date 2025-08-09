@@ -124,45 +124,72 @@ async function raceSelectCases<T>(
   cases: SelectCase<T>[],
   timeout: number
 ): Promise<T> {
-  // Create promises for all cases
-  const promises: Promise<T>[] = cases.map(selectCase => {
-    const { channel, operation, value, handler } = selectCase;
+  return new Promise<T>((resolve, reject) => {
+    let resolved = false;
+    let timeoutId: NodeJS.Timeout | null = null;
 
-    if (operation === 'send') {
-      if (value === undefined) {
-        throw new Error('Value is required for send operations');
-      }
-
-      return channel.send(value).then(() => {
-        if (handler) {
-          handler(value);
+    // Set up select timeout
+    if (timeout !== INFINITE_TIMEOUT) {
+      timeoutId = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          resolve(undefined as AnyValue); // Return undefined on timeout, don't throw
         }
-        return value;
-      });
-    } else if (operation === 'receive') {
-      return channel.receive().then(received => {
-        if (received !== undefined && handler) {
-          handler(received);
-        }
-        return received as T;
-      });
+      }, timeout);
     }
 
-    throw new Error(`Invalid operation: ${operation}`);
-  });
+    // Create promises for all cases without their own timeouts
+    const promises: Promise<T>[] = cases.map(selectCase => {
+      const { channel, operation, value, handler } = selectCase;
 
-  // Add timeout promise if specified
-  if (timeout !== INFINITE_TIMEOUT) {
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => {
-        reject(new Error(`Select operation timed out after ${timeout}ms`));
-      }, timeout);
+      if (operation === 'send') {
+        if (value === undefined) {
+          throw new Error('Value is required for send operations');
+        }
+
+        // Use infinite timeout for individual channel operations
+        // Let the select timeout handle the overall timing
+        return channel.send(value, INFINITE_TIMEOUT).then(() => {
+          if (handler) {
+            handler(value);
+          }
+          return value;
+        });
+      } else if (operation === 'receive') {
+        // Use infinite timeout for individual channel operations
+        // Let the select timeout handle the overall timing
+        return channel.receive(INFINITE_TIMEOUT).then(received => {
+          if (received !== undefined && handler) {
+            handler(received);
+          }
+          return received as T;
+        });
+      }
+
+      throw new Error(`Invalid operation: ${operation}`);
     });
-    promises.push(timeoutPromise);
-  }
 
-  // Race all promises
-  return Promise.race(promises);
+    // Race all promises
+    Promise.race(promises)
+      .then(result => {
+        if (!resolved) {
+          resolved = true;
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+          }
+          resolve(result);
+        }
+      })
+      .catch(error => {
+        if (!resolved) {
+          resolved = true;
+          if (timeoutId) {
+            clearTimeout(timeoutId);
+          }
+          reject(error);
+        }
+      });
+  });
 }
 
 /**
@@ -178,7 +205,7 @@ async function pollSelectCases<T>(
   cases: SelectCase<T>[],
   timeout: number
 ): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
+  return new Promise<T>(resolve => {
     let pollInterval = 1; // Start with 1ms
     const maxPollInterval = 100; // Cap at 100ms
     const startTime = Date.now();
@@ -187,7 +214,7 @@ async function pollSelectCases<T>(
     // Set up timeout if specified
     if (timeout !== INFINITE_TIMEOUT) {
       timeoutId = setTimeout(() => {
-        reject(new Error(`Select operation timed out after ${timeout}ms`));
+        resolve(undefined as AnyValue); // Return undefined on timeout, don't throw
       }, timeout);
     }
 
@@ -198,7 +225,7 @@ async function pollSelectCases<T>(
         if (timeoutId) {
           clearTimeout(timeoutId);
         }
-        reject(new Error(`Select operation timed out after ${timeout}ms`));
+        resolve(undefined as AnyValue); // Return undefined on timeout, don't throw
         return;
       }
 

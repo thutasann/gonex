@@ -2,7 +2,7 @@
  * Default timeout values in milliseconds
  */
 export const DEFAULT_TIMEOUT = 5000; // 5 seconds
-export const DEFAULT_CHANNEL_TIMEOUT = 1000; // 1 second
+export const DEFAULT_CHANNEL_TIMEOUT = 5000; // 5 seconds (increased from 1 second)
 export const DEFAULT_MUTEX_TIMEOUT = 3000; // 3 seconds
 export const DEFAULT_SEMAPHORE_TIMEOUT = 2000; // 2 seconds
 export const INFINITE_TIMEOUT = -1; // No timeout

@@ -145,6 +145,8 @@ export function createContextProxy(): string {
             __isProxyMutex: true,
             __originalMutex: arg,
           };
+        } else if (arg && typeof arg === 'object' && arg.__isChannel) {
+          return createProxyChannel(arg);
         }
         return arg;
       });
@@ -226,6 +228,70 @@ export function createProxyRWMutex(serializedMutex: AnyValue): AnyValue {
     },
     __isProxyRWMutex: true,
     __originalMutex: serializedMutex,
+  };
+}
+
+/**
+ * Create a proxy Channel object for worker threads
+ */
+export function createProxyChannel(serializedChannel: AnyValue): AnyValue {
+  if (
+    !serializedChannel ||
+    typeof serializedChannel !== 'object' ||
+    !serializedChannel.__isChannel
+  ) {
+    return serializedChannel;
+  }
+
+  // Create a simple proxy that throws errors for operations that can't work across threads
+  return {
+    async send(value: AnyValue, timeout?: number): Promise<void> {
+      throw new Error(
+        'Channel send operations are not supported across worker thread boundaries. ' +
+          'Please use channel operations in the main thread and pass results to workers.' +
+          `\n\nValue: ${value}` +
+          `\n\nTimeout: ${timeout}`
+      );
+    },
+    async receive(timeout?: number): Promise<AnyValue> {
+      throw new Error(
+        'Channel receive operations are not supported across worker thread boundaries. ' +
+          'Please use channel operations in the main thread and pass results to workers.' +
+          `\n\nTimeout: ${timeout}`
+      );
+    },
+    trySend(value?: AnyValue): boolean {
+      // For select operations, return false to indicate the operation can't proceed
+      if (value !== undefined) {
+        throw new Error(
+          'Channel send operations are not supported across worker thread boundaries. ' +
+            'Please use channel operations in the main thread and pass results to workers.' +
+            `\n\nValue: ${value}`
+        );
+      }
+      return false;
+    },
+    tryReceive(): AnyValue {
+      // For select operations, return undefined to indicate no value available
+      return undefined;
+    },
+    close(): void {
+      throw new Error(
+        'Channel close operations are not supported across worker thread boundaries.' +
+          `\n\nChannel ID: ${serializedChannel.channelId}`
+      );
+    },
+    isClosed(): boolean {
+      return serializedChannel.isClosed || false;
+    },
+    length(): number {
+      return serializedChannel.length || 0;
+    },
+    capacity(): number {
+      return serializedChannel.bufferSize || 0;
+    },
+    __isProxyChannel: true,
+    __originalChannel: serializedChannel,
   };
 }
 

@@ -222,6 +222,43 @@ export class WorkerSerializationService {
   }
 
   /**
+   * Serialize Channel objects for worker thread communication
+   *
+   * @param channel - Channel object to serialize
+   * @returns Serialized channel object
+   */
+  serializeChannel(channel: AnyValue): AnyValue {
+    if (
+      channel &&
+      typeof channel === 'object' &&
+      'send' in channel &&
+      'receive' in channel &&
+      'trySend' in channel &&
+      'tryReceive' in channel
+    ) {
+      // This is a channel object - serialize it
+      const channelId = `channel_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+      // Store the channel reference for coordination
+      if (!this.contextRegistry) {
+        this.contextRegistry = new Map();
+      }
+      this.contextRegistry.set(channelId, channel);
+
+      return {
+        __isChannel: true,
+        channelId,
+        bufferSize: channel.capacity ? channel.capacity() : 0,
+        length: channel.length ? channel.length() : 0,
+        isClosed: channel.isClosed ? channel.isClosed() : false,
+        name: channel.name || '',
+      };
+    }
+
+    return channel;
+  }
+
+  /**
    * Serialize arguments and extract function dependencies
    *
    * @param args - Arguments to serialize
@@ -263,6 +300,16 @@ export class WorkerSerializationService {
       ) {
         // This is a mutex object (RWMutex or Mutex) - serialize it
         serializedArgs.push(this.serializeRWMutex(arg));
+      } else if (
+        arg &&
+        typeof arg === 'object' &&
+        'send' in arg &&
+        'receive' in arg &&
+        'trySend' in arg &&
+        'tryReceive' in arg
+      ) {
+        // This is a channel object - serialize it
+        serializedArgs.push(this.serializeChannel(arg));
       } else {
         serializedArgs.push(arg);
       }
@@ -308,6 +355,16 @@ export class WorkerSerializationService {
       ) {
         // This is a mutex object (RWMutex or Mutex) - serialize it
         serialized[key] = this.serializeRWMutex(value);
+      } else if (
+        value &&
+        typeof value === 'object' &&
+        'send' in value &&
+        'receive' in value &&
+        'trySend' in value &&
+        'tryReceive' in value
+      ) {
+        // This is a channel object - serialize it
+        serialized[key] = this.serializeChannel(value);
       } else {
         serialized[key] = value;
       }
