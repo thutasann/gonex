@@ -1,4 +1,5 @@
 export * from './channel';
+export * from './cond';
 export * from './context';
 export * from './goroutine';
 export * from './mutex';
