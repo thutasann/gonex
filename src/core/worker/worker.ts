@@ -150,7 +150,11 @@ function handleShutdown(message: WorkerMessage): WorkerResponse {
 
   // Send response before exiting
   parentPort?.postMessage(response);
-  process.exit(0);
+
+  // Exit asynchronously to allow message to be sent
+  setTimeout(() => {
+    process.exit(0);
+  }, 20);
 
   return response;
 }
@@ -176,8 +180,8 @@ async function handleMessage(message: WorkerMessage): Promise<void> {
         response = handleHeartbeat(message);
         break;
       case 'shutdown':
-        response = handleShutdown(message);
-        break;
+        handleShutdown(message);
+        return; // Shutdown handles its own response
       default:
         throw new Error(`Unknown message type: ${message.type}`);
     }

@@ -289,6 +289,7 @@ main() {
         "core/waitgroups:WaitGroups"
         "core/ticker:Ticker"
         "core/rwmutex:RwMutex"
+        "core/cond:Cond"
     )
     
     # Run each directory
