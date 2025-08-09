@@ -1,78 +1,17 @@
 import os from 'os';
 import { join } from 'path';
 import { Worker } from 'worker_threads';
-import { log } from '../../utils';
 import {
-  createFunctionWithDependencies,
-  extractAndLoadDependencies,
-} from '../../utils/import-parser';
-import { logger } from '../../utils/logger';
-
-/**
- * Configuration for worker thread management
- */
-export type WorkerThreadConfig = {
-  /** Minimum workers per thread */
-  minWorkers: number;
-  /** Maximum workers per thread */
-  maxWorkers: number;
-  /** Worker lifecycle timeout in milliseconds */
-  workerTimeout: number;
-  /** Enable dynamic worker scaling */
-  autoScaling: boolean;
-  /** Pin workers to CPU cores */
-  cpuAffinity: boolean;
-  /** Enable SharedArrayBuffer */
-  sharedMemory: boolean;
-};
-
-/**
- * Worker thread health information
- */
-export type WorkerHealth = {
-  workerId: number;
-  isAlive: boolean;
-  lastHeartbeat: number;
-  errorCount: number;
-  load: number;
-  memoryUsage: number;
-};
-
-/**
- * Message sent to worker threads
- */
-export type WorkerMessage = {
-  id: string;
-  type: 'init' | 'execute' | 'heartbeat' | 'shutdown';
-  functionCode?: string;
-  variables?: Record<string, AnyValue>;
-  dependencies?: Record<string, string>;
-  args?: AnyValue[];
-  invocationId?: number;
-  timeout?: number;
-};
-
-/**
- * Response from worker threads
- */
-export type WorkerResponse = {
-  id: string;
-  success: boolean;
-  result?: AnyValue;
-  error?: string;
-  invocationId?: number;
-  workerId: number;
-};
+  MessageHandlers,
+  WorkerHealth,
+  WorkerResponse,
+  WorkerThreadConfig,
+} from '../../types';
+import { log, logger } from '../../utils';
+import { WorkerSerializationService } from './worker-serialization-service';
 
 /** available cpus  */
 const cpus = os.cpus();
-
-/** Message Handlers */
-type MesasgeHandlers = Map<
-  string,
-  // eslint-disable-next-line @typescript-eslint/ban-types
-  { resolve: Function; reject: Function; timeout: NodeJS.Timeout }
->;
 
 /**
  * High-performance worker thread manager
@@ -86,13 +25,13 @@ type MesasgeHandlers = Map<
 export class WorkerThreadManager {
   private workers: Worker[] = [];
   private workerHealth: Map<number, WorkerHealth> = new Map();
-  private messageHandlers: MesasgeHandlers = new Map();
+  private messageHandlers: MessageHandlers = new Map();
   private config: WorkerThreadConfig;
   private isShuttingDown = false;
   private healthMonitoringInterval: NodeJS.Timeout | null = null;
   private currentWorkerIndex = 0;
   private invocationCount = 0;
-  private contextRegistry: Map<string, AnyValue> | null = null;
+  private serializationService: WorkerSerializationService;
 
   constructor(config: Partial<WorkerThreadConfig> = {}) {
     this.config = {
@@ -104,6 +43,7 @@ export class WorkerThreadManager {
       sharedMemory: true,
       ...config,
     };
+    this.serializationService = new WorkerSerializationService();
   }
 
   /**
@@ -124,260 +64,6 @@ export class WorkerThreadManager {
   }
 
   /**
-   * Create a new worker thread
-   *
-   * @param workerId - Unique worker ID
-   */
-  private async createWorker(workerId: number): Promise<void> {
-    // Get the user's project directory (where the go() function is called from)
-    const userProjectDir = process.cwd();
-
-    // Get the current working directory for resolving relative imports
-    const currentWorkingDir = process.cwd();
-
-    const worker = new Worker(join(__dirname, './worker.js'), {
-      workerData: {
-        workerId,
-        userProjectDir, // Pass the user's project directory
-        currentWorkingDir, // Pass the current working directory
-      },
-    });
-
-    // Set higher max listeners to prevent warnings
-    worker.setMaxListeners(50);
-
-    // Set up message handling
-    worker.on('message', this.handleWorkerMessage.bind(this));
-    worker.on('error', this.handleWorkerError.bind(this));
-    worker.on('exit', this.handleWorkerExit.bind(this));
-
-    this.workers.push(worker);
-    this.workerHealth.set(workerId, {
-      workerId,
-      isAlive: true,
-      lastHeartbeat: Date.now(),
-      errorCount: 0,
-      load: 0,
-      memoryUsage: 0,
-    });
-  }
-
-  /**
-   * Serialize a function for worker thread execution
-   *
-   * @param fn - Function to serialize
-   * @returns Object containing serialized function and dependencies
-   */
-  private async serializeFunction(
-    fn: (...args: AnyValue[]) => AnyValue
-  ): Promise<{
-    functionCode: string;
-    dependencies: Record<string, string>;
-  }> {
-    const fnString = fn.toString();
-    const dependencies: Record<string, string> = {};
-
-    // Extract function calls from the function body
-    const functionCalls = this.extractFunctionCalls(fnString);
-
-    // Add dependencies for each function call
-    for (const funcName of functionCalls) {
-      if (!this.isGlobalFunction(funcName)) {
-        // Try to get the function from the current scope
-        const currentScope = globalThis as AnyValue;
-        if (typeof currentScope[funcName] === 'function') {
-          // Skip built-in functions that might cause serialization issues
-          if (
-            funcName !== 'toString' &&
-            funcName !== 'valueOf' &&
-            funcName !== 'toJSON'
-          ) {
-            dependencies[funcName] = currentScope[funcName].toString();
-          }
-        }
-      }
-    }
-
-    // Extract external dependencies from the function
-    try {
-      const externalDependencies = await extractAndLoadDependencies(fnString);
-
-      // Add external dependencies to the dependencies object
-      for (const [name, module] of Object.entries(externalDependencies)) {
-        if (typeof module === 'object' && module !== null) {
-          // Serialize the module as JSON
-          dependencies[`external_${name}`] = JSON.stringify(module);
-        }
-      }
-    } catch (error) {
-      console.warn('Failed to extract external dependencies:', error);
-    }
-
-    // Create the function code with external dependencies
-    let functionCode = fnString;
-
-    try {
-      const externalDependencies = await extractAndLoadDependencies(fnString);
-      if (Object.keys(externalDependencies).length > 0) {
-        functionCode = createFunctionWithDependencies(
-          fnString,
-          externalDependencies
-        );
-      }
-    } catch (error) {
-      console.warn('Failed to create function with dependencies:', error);
-      // Fallback to original function
-      functionCode = fnString;
-    }
-
-    return {
-      functionCode: `const fn = ${functionCode};`,
-      dependencies,
-    };
-  }
-
-  /**
-   * Serialize context objects for worker thread communication
-   */
-  private serializeContext(ctx: AnyValue): AnyValue {
-    if (
-      ctx &&
-      typeof ctx === 'object' &&
-      'err' in ctx &&
-      'done' in ctx &&
-      'deadline' in ctx
-    ) {
-      // This is a context object - serialize it with its actual ID
-      const contextId = ctx.getContextId
-        ? ctx.getContextId()
-        : `ctx_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-
-      // Store the context reference for later updates
-      if (!this.contextRegistry) {
-        this.contextRegistry = new Map();
-      }
-      this.contextRegistry.set(contextId, ctx);
-
-      // Extract context values if available
-      const contextValues: Record<string, AnyValue> = {};
-      if (ctx.value && typeof ctx.value === 'function') {
-        // Try to extract common context values
-        const commonKeys = [
-          'user',
-          'requestId',
-          'session',
-          'environment',
-          'userId',
-          'config',
-          'auth',
-          'counter',
-          'level',
-          'final',
-        ];
-        for (const key of commonKeys) {
-          try {
-            const value = ctx.value(key);
-            if (value !== null && value !== undefined) {
-              contextValues[key] = value;
-            }
-          } catch (error) {
-            // Ignore errors when accessing context values
-          }
-        }
-      }
-
-      return {
-        __isContext: true,
-        contextId,
-        deadline: ctx.deadline ? ctx.deadline() : [undefined, false],
-        err: ctx.err ? ctx.err() : null,
-        values: contextValues,
-        // We'll need to handle done() channel separately
-      };
-    }
-    return ctx;
-  }
-
-  /**
-   * Serialize arguments and extract function dependencies
-   *
-   * @param args - Arguments to serialize
-   * @returns Object containing serialized arguments and additional dependencies
-   */
-  private serializeArguments(args: AnyValue[]): {
-    serializedArgs: AnyValue[];
-    additionalDependencies: Record<string, string>;
-  } {
-    const serializedArgs: AnyValue[] = [];
-    const additionalDependencies: Record<string, string> = {};
-
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i];
-
-      if (typeof arg === 'function') {
-        // Create a unique name for this function
-        const funcName = `arg_func_${i}_${Date.now()}`;
-
-        // Serialize the function and add it to dependencies
-        additionalDependencies[funcName] = arg.toString();
-
-        // Replace the function with its name in the arguments
-        serializedArgs.push(funcName);
-      } else if (
-        arg &&
-        typeof arg === 'object' &&
-        'err' in arg &&
-        'done' in arg &&
-        'deadline' in arg
-      ) {
-        // This is a context object - serialize it
-        serializedArgs.push(this.serializeContext(arg));
-      } else {
-        serializedArgs.push(arg);
-      }
-    }
-
-    return {
-      serializedArgs,
-      additionalDependencies,
-    };
-  }
-
-  /**
-   * Serialize variables following the multithreading library's approach
-   *
-   * @param variables - Variables to serialize
-   * @returns Serialized variables
-   */
-  private serializeVariables(
-    variables: Record<string, AnyValue>
-  ): Record<string, AnyValue> {
-    const serialized: Record<string, AnyValue> = {};
-
-    for (const [key, value] of Object.entries(variables)) {
-      if (typeof value === 'function') {
-        serialized[key] = {
-          wasType: 'function',
-          value: value.toString(),
-        };
-      } else if (
-        value &&
-        typeof value === 'object' &&
-        'err' in value &&
-        'done' in value &&
-        'deadline' in value
-      ) {
-        // This is a context object - serialize it
-        serialized[key] = this.serializeContext(value);
-      } else {
-        serialized[key] = value;
-      }
-    }
-
-    return serialized;
-  }
-
-  /**
    * Initialize workers with a function
    *
    * @param fn - Function to initialize workers with
@@ -388,10 +74,12 @@ export class WorkerThreadManager {
     context: Record<string, AnyValue> = {}
   ): Promise<void> {
     // Serialize the function
-    const { functionCode, dependencies } = await this.serializeFunction(fn);
+    const { functionCode, dependencies } =
+      await this.serializationService.serializeFunction(fn);
 
     // Serialize variables following multithreading library's approach
-    const serializedVariables = this.serializeVariables(context);
+    const serializedVariables =
+      this.serializationService.serializeVariables(context);
 
     // Initialize all workers with the function
     const initPromises = this.workers.map(async worker => {
@@ -432,183 +120,6 @@ export class WorkerThreadManager {
   }
 
   /**
-   * Extract function calls from a function string
-   *
-   * @param fnString - Function string to analyze
-   * @returns Array of function names called in the function
-   */
-  private extractFunctionCalls(fnString: string): string[] {
-    const functionCalls: string[] = [];
-    const skipList = [
-      'console',
-      'setTimeout',
-      'setInterval',
-      'clearTimeout',
-      'clearInterval',
-      'Math',
-      'JSON',
-      'Array',
-      'Object',
-      'String',
-      'Number',
-      'Boolean',
-      'Date',
-      'RegExp',
-      'Error',
-      'Promise',
-      'async',
-      'await',
-      'return',
-      'if',
-      'else',
-      'for',
-      'while',
-      'do',
-      'switch',
-      'case',
-      'default',
-      'try',
-      'catch',
-      'finally',
-      'throw',
-      'new',
-      'typeof',
-      'instanceof',
-      'delete',
-      'void',
-      'in',
-      'of',
-      'yield',
-      'let',
-      'const',
-      'var',
-      'function',
-      'class',
-      'extends',
-      'super',
-      'this',
-      'arguments',
-      'data',
-      'result',
-      'error',
-      'i',
-      'j',
-      'k',
-      'x',
-      'y',
-      'z',
-    ];
-
-    // Find function calls using regex
-    const callPattern = /\b(\w+)\s*\(/g;
-    const matches = [...fnString.matchAll(callPattern)];
-
-    for (const match of matches) {
-      const funcName = match[1];
-      if (
-        funcName &&
-        !skipList.includes(funcName) &&
-        !functionCalls.includes(funcName)
-      ) {
-        functionCalls.push(funcName);
-      }
-    }
-
-    return functionCalls;
-  }
-
-  /**
-   * Check if a function is a global function
-   *
-   * @param funcName - Function name to check
-   * @returns Whether the function is global
-   */
-  private isGlobalFunction(funcName: string): boolean {
-    const globalFunctions = [
-      'console',
-      'setTimeout',
-      'setInterval',
-      'clearTimeout',
-      'clearInterval',
-      'Math',
-      'JSON',
-      'Array',
-      'Object',
-      'String',
-      'Number',
-      'Boolean',
-      'Date',
-      'RegExp',
-      'Error',
-      'Promise',
-      'toString',
-      'valueOf',
-      'toJSON',
-      'hasOwnProperty',
-      'isPrototypeOf',
-      'propertyIsEnumerable',
-    ];
-    return globalFunctions.includes(funcName);
-  }
-
-  /**
-   * Update context state and broadcast to all workers
-   */
-  public updateContextState(contextId: string): void {
-    if (!this.contextRegistry || !this.contextRegistry.has(contextId)) {
-      return;
-    }
-
-    const ctx = this.contextRegistry.get(contextId);
-    if (!ctx) return;
-
-    // Extract current context values
-    const contextValues: Record<string, AnyValue> = {};
-    if (ctx.value && typeof ctx.value === 'function') {
-      // Try to extract common context values
-      const commonKeys = [
-        'user',
-        'requestId',
-        'session',
-        'environment',
-        'userId',
-        'config',
-        'auth',
-        'counter',
-        'level',
-        'final',
-      ];
-      for (const key of commonKeys) {
-        try {
-          const value = ctx.value(key);
-          if (value !== null && value !== undefined) {
-            contextValues[key] = value;
-          }
-        } catch (error) {
-          // Ignore errors when accessing context values
-        }
-      }
-    }
-
-    // Get current context state
-    const currentState = {
-      contextId,
-      deadline: ctx.deadline ? ctx.deadline() : [undefined, false],
-      err: ctx.err ? ctx.err() : null,
-      values: contextValues,
-    };
-
-    // Broadcast to all workers
-    this.workers.forEach(worker => {
-      worker.postMessage({
-        id: this.generateMessageId(),
-        type: 'contextUpdate',
-        contextState: currentState,
-      });
-    });
-  }
-
-  /**
    * Execute a function on a worker thread
    *
    * @param fn - Function to execute
@@ -634,7 +145,7 @@ export class WorkerThreadManager {
 
     // Serialize arguments and extract function dependencies
     const { serializedArgs, additionalDependencies } =
-      this.serializeArguments(args);
+      this.serializationService.serializeArguments(args);
 
     // Always re-initialize workers with the new function to avoid function reuse
     await this.initializeWorkers(fn);
@@ -676,6 +187,164 @@ export class WorkerThreadManager {
         invocationId,
         timeout: operationTimeout,
       });
+    });
+  }
+
+  /**
+   * Shutdown all worker threads
+   */
+  async shutdown(): Promise<void> {
+    this.isShuttingDown = true;
+
+    logger.workerThread(
+      `Shutting down ${this.workers.length} worker threads...`
+    );
+
+    // Clear all message handlers immediately to prevent new executions
+    this.messageHandlers.clear();
+
+    const shutdownPromises = this.workers.map((worker, index) => {
+      return new Promise<void>(resolve => {
+        let resolved = false;
+
+        // Send shutdown message
+        const messageId = this.generateMessageId();
+        worker.postMessage({
+          id: messageId,
+          type: 'shutdown',
+        });
+
+        // Listen for exit event
+        const onExit = (code: number) => {
+          if (!resolved) {
+            resolved = true;
+            logger.workerThread(`Worker ${index} exited with code ${code}`);
+            // Remove all listeners to prevent memory leaks
+            worker.removeAllListeners();
+            resolve();
+          }
+        };
+
+        // Listen for shutdown response
+        const onMessage = (message: AnyValue) => {
+          if (message.id === messageId && message.success) {
+            logger.workerThread(`Worker ${index} acknowledged shutdown`);
+          }
+        };
+
+        worker.on('exit', onExit);
+        worker.on('message', onMessage);
+
+        // Force terminate after 1 second if not responding
+        const forceTerminate = setTimeout(() => {
+          if (!resolved) {
+            resolved = true;
+            logger.workerThread(`Force terminating worker ${index}`);
+            worker.removeAllListeners();
+            worker.terminate();
+            resolve();
+          }
+        }, 1000);
+
+        // Clear timeout if worker exits normally
+        worker.on('exit', () => {
+          clearTimeout(forceTerminate);
+        });
+      });
+    });
+
+    await Promise.all(shutdownPromises);
+
+    // Clear health monitoring interval
+    if (this.healthMonitoringInterval) {
+      clearInterval(this.healthMonitoringInterval);
+      this.healthMonitoringInterval = null;
+    }
+
+    // Clear all workers array and handlers
+    this.workers = [];
+    this.workerHealth.clear();
+    this.serializationService.clearContextRegistry();
+
+    logger.workerThread('All worker threads shutdown complete');
+  }
+
+  /**
+   * Update context state and broadcast to all workers
+   */
+  updateContextState(contextId: string): void {
+    const currentState = this.serializationService.getContextState(contextId);
+    if (!currentState) {
+      return;
+    }
+
+    // Broadcast to all workers
+    this.workers.forEach(worker => {
+      worker.postMessage({
+        id: this.generateMessageId(),
+        type: 'contextUpdate',
+        contextState: currentState,
+      });
+    });
+  }
+
+  /**
+   * Get worker health information
+   *
+   * @returns Map of worker health data
+   */
+  getWorkerHealth(): Map<number, WorkerHealth> {
+    return new Map(this.workerHealth);
+  }
+
+  /**
+   * Get number of active workers
+   *
+   * @returns Number of active workers
+   */
+  getActiveWorkerCount(): number {
+    return this.workers.filter((_, index) => {
+      const health = this.workerHealth.get(index);
+      return health && health.isAlive;
+    }).length;
+  }
+
+  /**
+   * Create a new worker thread
+   *
+   * @param workerId - Unique worker ID
+   */
+  private async createWorker(workerId: number): Promise<void> {
+    // Get the user's project directory (where the go() function is called from)
+    const userProjectDir = process.cwd();
+
+    // Get the current working directory for resolving relative imports
+    const currentWorkingDir = process.cwd();
+
+    const worker = new Worker(join(__dirname, './worker.js'), {
+      workerData: {
+        workerId,
+        userProjectDir, // Pass the user's project directory
+        currentWorkingDir, // Pass the current working directory
+      },
+    });
+
+    // Set higher max listeners to prevent warnings
+    worker.setMaxListeners(50);
+
+    // Set up message handling
+    worker.on('message', this.handleWorkerMessage.bind(this));
+    worker.on('error', this.handleWorkerError.bind(this));
+    worker.on('exit', this.handleWorkerExit.bind(this));
+
+    this.workers.push(worker);
+    this.workerHealth.set(workerId, {
+      workerId,
+      isAlive: true,
+      lastHeartbeat: Date.now(),
+      errorCount: 0,
+      load: 0,
+      memoryUsage: 0,
     });
   }
 
@@ -783,104 +452,5 @@ export class WorkerThreadManager {
    */
   private generateMessageId(): string {
     return `msg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-  }
-
-  /**
-   * Shutdown all worker threads
-   */
-  async shutdown(): Promise<void> {
-    this.isShuttingDown = true;
-
-    logger.workerThread(
-      `Shutting down ${this.workers.length} worker threads...`
-    );
-
-    // Clear all message handlers immediately to prevent new executions
-    this.messageHandlers.clear();
-
-    const shutdownPromises = this.workers.map((worker, index) => {
-      return new Promise<void>(resolve => {
-        let resolved = false;
-
-        // Send shutdown message
-        const messageId = this.generateMessageId();
-        worker.postMessage({
-          id: messageId,
-          type: 'shutdown',
-        });
-
-        // Listen for exit event
-        const onExit = (code: number) => {
-          if (!resolved) {
-            resolved = true;
-            logger.workerThread(`Worker ${index} exited with code ${code}`);
-            // Remove all listeners to prevent memory leaks
-            worker.removeAllListeners();
-            resolve();
-          }
-        };
-
-        // Listen for shutdown response
-        const onMessage = (message: AnyValue) => {
-          if (message.id === messageId && message.success) {
-            logger.workerThread(`Worker ${index} acknowledged shutdown`);
-          }
-        };
-
-        worker.on('exit', onExit);
-        worker.on('message', onMessage);
-
-        // Force terminate after 1 second if not responding
-        const forceTerminate = setTimeout(() => {
-          if (!resolved) {
-            resolved = true;
-            logger.workerThread(`Force terminating worker ${index}`);
-            worker.removeAllListeners();
-            worker.terminate();
-            resolve();
-          }
-        }, 1000);
-
-        // Clear timeout if worker exits normally
-        worker.on('exit', () => {
-          clearTimeout(forceTerminate);
-        });
-      });
-    });
-
-    await Promise.all(shutdownPromises);
-
-    // Clear health monitoring interval
-    if (this.healthMonitoringInterval) {
-      clearInterval(this.healthMonitoringInterval);
-      this.healthMonitoringInterval = null;
-    }
-
-    // Clear all workers array and handlers
-    this.workers = [];
-    this.workerHealth.clear();
-
-    logger.workerThread('All worker threads shutdown complete');
-  }
-
-  /**
-   * Get worker health information
-   *
-   * @returns Map of worker health data
-   */
-  getWorkerHealth(): Map<number, WorkerHealth> {
-    return new Map(this.workerHealth);
-  }
-
-  /**
-   * Get number of active workers
-   *
-   * @returns Number of active workers
-   */
-  getActiveWorkerCount(): number {
-    return this.workers.filter((_, index) => {
-      const health = this.workerHealth.get(index);
-      return health && health.isAlive;
-    }).length;
   }
 }
