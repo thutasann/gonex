@@ -64,14 +64,37 @@ go(async () => {
   await sleep(200); // Let buffer fill up first
 
   console.log('   Consumer: Starting to drain small buffer...');
-  while (true) {
+  let receivedCount = 0;
+  const maxReceives = 10; // Limit to prevent infinite loop
+
+  while (receivedCount < maxReceives) {
     try {
-      const item = await smallBufferChannel.receive();
-      console.log(`   Consumer: received from small buffer - ${item}`);
-      await sleep(300); // Slow consumer
+      const result = await select(
+        [
+          {
+            channel: smallBufferChannel,
+            operation: 'receive',
+          },
+        ],
+        { timeout: 2000 }
+      );
+
+      if (result !== undefined) {
+        receivedCount++;
+        console.log(`   Consumer: received from small buffer - ${result}`);
+        await sleep(300); // Slow consumer
+      } else {
+        console.log('   Consumer: small buffer timeout, stopping');
+        break;
+      }
     } catch (error) {
+      console.log('   Consumer: small buffer error, stopping');
       break;
     }
+  }
+
+  if (receivedCount >= maxReceives) {
+    console.log(`   Consumer: stopped after receiving ${maxReceives} items`);
   }
 });
 
@@ -175,7 +198,10 @@ go(async () => {
     console.log('   Burst Consumer: Starting to process burst...');
 
     let processedCount = 0;
-    while (true) {
+    let timeoutCount = 0;
+    const maxTimeouts = 3;
+
+    while (timeoutCount < maxTimeouts) {
       try {
         const result = await select(
           [
@@ -189,18 +215,25 @@ go(async () => {
 
         if (result !== undefined) {
           processedCount++;
+          timeoutCount = 0; // Reset timeout counter
           console.log(
             `   Burst Consumer: Processed ${result} (${processedCount})`
           );
           await sleep(100); // Simulate processing time
+        } else {
+          timeoutCount++;
         }
       } catch (error) {
         console.log(
-          `   Burst Consumer: Finished, processed ${processedCount} messages`
+          `   Burst Consumer: Error, processed ${processedCount} messages`
         );
         break;
       }
     }
+
+    console.log(
+      `   Burst Consumer: Finished, processed ${processedCount} messages`
+    );
   });
 });
 
@@ -253,14 +286,19 @@ go(async () => {
     }
 
     console.log('   Producer: Finished sending test data');
+
+    // Close all channels to signal consumers to stop
+    channels.forEach(({ ch }) => ch.close());
   });
 
   // Consumers with different speeds
   channels.forEach(({ name, ch }, index) => {
     go(async () => {
       const delay = (index + 1) * 50; // Different processing speeds
+      let timeoutCount = 0;
+      const maxTimeouts = 3; // Stop after 3 consecutive timeouts
 
-      while (true) {
+      while (timeoutCount < maxTimeouts) {
         try {
           const result = await select(
             [
@@ -274,6 +312,9 @@ go(async () => {
 
           if (result !== undefined) {
             console.log(`   ${name} Consumer: processed ${result}`);
+            timeoutCount = 0; // Reset timeout counter on successful receive
+          } else {
+            timeoutCount++;
           }
 
           await sleep(delay);
@@ -282,6 +323,19 @@ go(async () => {
           break;
         }
       }
+
+      if (timeoutCount >= maxTimeouts) {
+        console.log(
+          `   ${name} Consumer: finished (${maxTimeouts} consecutive timeouts)`
+        );
+      }
     });
+  });
+
+  // Add a final cleanup timeout
+  go(async () => {
+    await sleep(5000); // Wait 5 seconds for all processing
+    console.log('\n🏁 All Select Example 5 tests completed!\n');
+    process.exit(0);
   });
 });
