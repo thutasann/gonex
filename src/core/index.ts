@@ -7,6 +7,7 @@ export * from './once';
 export * from './rwmutex';
 export * from './select';
 export * from './semaphore';
+export * from './shared-channels';
 export * from './shared-memory';
 export * from './timing';
 export * from './waitgroup';
