@@ -1,3 +1,4 @@
+import { ChannelOptions } from '../core/channel';
 import {
   MAX_CHANNEL_BUFFER,
   MAX_TIMEOUT,
@@ -81,15 +82,6 @@ export function validatePoolSize(size: number, name?: string): void {
     );
   }
 }
-
-type ChannelOptions = {
-  /** Buffer size for the channel (0 for unbuffered) */
-  bufferSize?: number;
-  /** Default timeout for send/receive operations in milliseconds */
-  timeout?: number;
-  /** Optional name for debugging and error reporting */
-  name?: string;
-};
 
 export function validateChannelOptions(options: ChannelOptions): void {
   if (options.bufferSize !== undefined) {

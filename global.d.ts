@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * A generic type alias for any value.
  *
@@ -11,5 +12,4 @@
  * data = "hello";
  * data = { key: "value" };
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyValue = any;

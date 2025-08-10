@@ -23,7 +23,7 @@ export type RWMutexOptions = {
 };
 
 /** RWMutex Current State Information */
-type RWMutexState = {
+export type RWMutexState = {
   readerCount: number;
   writerLocked: boolean;
   writerWaiting: boolean;
