@@ -164,9 +164,13 @@ const eventLoopResults = await goAll(tasks, [], { useWorkerThreads: false });
 // Execution time: ~16 seconds
 
 // Worker thread execution (multi-core)
-const parallelResults = await goAll(tasks, [] { useWorkerThreads: true });
+const parallelResults = await goAll(tasks, [], { useWorkerThreads: true });
 // Execution time: ~6 seconds (2.6x faster!)
 ```
+
+## 📚 Documentation
+
+📖 **Full API Documentation:** [https://thutasann.github.io/gonex/](https://thutasann.github.io/gonex/)
 
 ## 🚀 Architecture
 
