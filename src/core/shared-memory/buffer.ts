@@ -1,6 +1,4 @@
 /**
- * @file src/core/shared-memory/buffer.ts
- *
  * Shared Memory Buffer - High-performance buffer wrapper with header management,
  * data integrity checks, and efficient read/write operations.
  */

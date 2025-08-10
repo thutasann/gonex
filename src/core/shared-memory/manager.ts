@@ -1,6 +1,4 @@
 /**
- * @file src/core/shared-memory/manager.ts
- *
  * Shared Memory Manager - Core infrastructure for managing SharedArrayBuffer instances
  * across worker threads with automatic lifecycle management and memory optimization.
  */
