@@ -1,0 +1,14 @@
+{
+  "entryPoints": ["src/index.ts", "global.d.ts"],
+  "out": "api-docs",
+  "excludeExternals": false,
+  "includeVersion": true,
+  "categorizeByGroup": true,
+  "categoryOrder": ["Core", "Worker", "Timing", "Utils", "Types", "*"],
+  "theme": "default",
+  "excludeReferences": false,
+  "excludeNotDocumented": false,
+  "excludePrivate": true,
+  "excludeProtected": true,
+  "excludeInternal": true
+}

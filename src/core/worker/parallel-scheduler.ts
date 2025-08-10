@@ -31,7 +31,7 @@ type SchedulerConfig = Required<ParallelOptions>;
 /**
  * Execution mode types
  */
-type ExecutionMode = 'worker-thread' | 'event-loop';
+export type ExecutionMode = 'worker-thread' | 'event-loop';
 
 /**
  * Available CPUs

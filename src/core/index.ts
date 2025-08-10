@@ -9,3 +9,4 @@ export * from './select';
 export * from './semaphore';
 export * from './timing';
 export * from './waitgroup';
+export * from './worker';

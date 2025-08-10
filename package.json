@@ -20,7 +20,8 @@
     "format": "prettier --write src/**/*.ts",
     "clean": "rimraf dist",
     "prepublishOnly": "npm run clean && npm run build && npm run test",
-    "docs": "typedoc --out docs src",
+    "docs": "typedoc",
+    "docs:serve": "npx http-server api-docs -p 8080 -o",
     "benchmark": "ts-node benchmarks/index.ts",
     "prepare": "husky"
   },
