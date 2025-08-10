@@ -21,7 +21,7 @@
     "clean": "rimraf dist",
     "prepublishOnly": "npm run clean && npm run build && npm run test",
     "docs": "typedoc",
-    "docs:start": "cd api-docs && npx lite-server index.html",
+    "docs:serve": "npx http-server api-docs -p 8080 -o",
     "benchmark": "ts-node benchmarks/index.ts",
     "prepare": "husky"
   },
