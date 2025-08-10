@@ -1,5 +1,5 @@
 module.exports = {
-  preset: 'ts-jest/presets/default-esm',
+  preset: 'ts-jest',
   testEnvironment: 'node',
   roots: ['<rootDir>/src'],
   testMatch: ['**/__tests__/**/*.test.ts', '**/__tests__/**/*.spec.ts'],
@@ -14,10 +14,9 @@ module.exports = {
     '^.+\\.ts$': [
       'ts-jest',
       {
-        useESM: true,
         tsconfig: {
           target: 'ES2020',
-          module: 'ES2020',
+          module: 'CommonJS',
           lib: ['ES2020'],
           strict: true,
           esModuleInterop: true,
@@ -58,10 +57,10 @@ module.exports = {
   moduleNameMapping: {
     '^@/(.*)$': '<rootDir>/src/$1',
   },
-  extensionsToTreatAsEsm: ['.ts'],
+  extensionsToTreatAsEsm: [],
   globals: {
     'ts-jest': {
-      useESM: true,
+      useESM: false,
     },
   },
   moduleFileExtensions: ['ts', 'js', 'json'],
