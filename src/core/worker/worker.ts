@@ -1,5 +1,5 @@
 import { parentPort, workerData } from 'worker_threads';
-import { ContextState, WorkerMessage, WorkerResponse } from '../../types';
+import type { ContextState, WorkerMessage, WorkerResponse } from '../../types';
 import {
   createExecutionEnvironment,
   deserializeFunctions,

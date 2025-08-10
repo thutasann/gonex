@@ -1,7 +1,7 @@
 import os from 'os';
 import { join } from 'path';
 import { Worker } from 'worker_threads';
-import {
+import type {
   MessageHandlers,
   WorkerHealth,
   WorkerResponse,

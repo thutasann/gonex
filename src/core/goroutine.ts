@@ -7,8 +7,8 @@ import {
 import { logger } from '../utils/logger';
 import { sleep } from './timing';
 import {
-  ParallelOptions,
   ParallelScheduler,
+  type ParallelOptions,
 } from './worker/parallel-scheduler';
 
 /**
