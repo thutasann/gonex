@@ -316,27 +316,117 @@ export class BroadcastChannel<T> {
    */
   acknowledge(subscriberId: number, messageId: number): void {
     if (this.isShuttingDown) {
+      logger.warn(
+        'Cannot acknowledge message on shutting down broadcast channel'
+      );
       return;
     }
 
     const subscriberInfo = this.subscriberMap.get(subscriberId);
     if (!subscriberInfo) {
+      logger.warn('Unknown subscriber ID for acknowledgment', {
+        subscriberId,
+        messageId,
+      });
       return;
     }
 
-    // Update subscriber's last message ID
-    subscriberInfo.lastMessageId = Math.max(
-      subscriberInfo.lastMessageId,
-      messageId + 1
-    );
-    subscriberInfo.lastActivity = Date.now();
-
-    // Increment message acknowledgment count
-    const message = this.readMessage(messageId);
-    if (message) {
-      // This would update the acknowledgment count in the message
-      // Implementation depends on message storage format
+    // Validate message ID
+    const currentMessageId = Atomics.load(this.messageId, 0);
+    if (messageId < 0 || messageId >= currentMessageId) {
+      logger.warn('Invalid message ID for acknowledgment', {
+        subscriberId,
+        messageId,
+        currentMessageId,
+      });
+      return;
     }
+
+    // Acquire mutex for thread-safe acknowledgment
+    if (!SharedMemoryAtomics.acquireMutex(this.mutex, 0, 100)) {
+      logger.warn('Failed to acquire mutex for message acknowledgment');
+      return;
+    }
+
+    try {
+      // Update subscriber's last message ID
+      subscriberInfo.lastMessageId = Math.max(
+        subscriberInfo.lastMessageId,
+        messageId + 1
+      );
+      subscriberInfo.lastActivity = Date.now();
+
+      // Update message acknowledgment count in the shared buffer
+      const messageOffset = this.calculateMessageOffset(messageId);
+      this.incrementMessageAcknowledgment(messageOffset);
+
+      // Check if message can be cleaned up (all subscribers acknowledged)
+      const totalSubscribers = Atomics.load(this.subscribers, 0);
+      const acknowledgmentCount =
+        this.getMessageAcknowledgmentCount(messageOffset);
+
+      if (acknowledgmentCount >= totalSubscribers) {
+        logger.debug('Message fully acknowledged, marking for cleanup', {
+          messageId,
+          acknowledgmentCount,
+          totalSubscribers,
+        });
+        this.markMessageForCleanup(messageOffset);
+      }
+
+      logger.debug('Message acknowledged', {
+        subscriberId,
+        messageId,
+        newLastMessageId: subscriberInfo.lastMessageId,
+        acknowledgmentCount: this.getMessageAcknowledgmentCount(messageOffset),
+      });
+    } finally {
+      SharedMemoryAtomics.releaseMutex(this.mutex, 0);
+    }
+  }
+
+  /**
+   * Increment message acknowledgment count
+   */
+  private incrementMessageAcknowledgment(messageOffset: number): void {
+    // Read current acknowledgment count from message header
+    const ackCountView = new DataView(
+      this.data.buffer,
+      this.data.byteOffset + messageOffset + 20, // Use reserved field for ack count
+      4
+    );
+
+    const currentAckCount = ackCountView.getUint32(0, false);
+    ackCountView.setUint32(0, currentAckCount + 1, false);
+  }
+
+  /**
+   * Get message acknowledgment count
+   */
+  private getMessageAcknowledgmentCount(messageOffset: number): number {
+    const ackCountView = new DataView(
+      this.data.buffer,
+      this.data.byteOffset + messageOffset + 20, // Use reserved field for ack count
+      4
+    );
+
+    return ackCountView.getUint32(0, false);
+  }
+
+  /**
+   * Mark message for cleanup (set cleanup flag)
+   */
+  private markMessageForCleanup(messageOffset: number): void {
+    // Set cleanup flag in message flags
+    const flagsView = new DataView(
+      this.data.buffer,
+      this.data.byteOffset + messageOffset + 8, // flags field
+      4
+    );
+
+    const currentFlags = flagsView.getUint32(0, false);
+    const cleanupFlag = 0x00000001; // Bit 0 for cleanup flag
+    flagsView.setUint32(0, currentFlags | cleanupFlag, false);
   }
 
   /**
@@ -554,15 +644,135 @@ export class BroadcastChannel<T> {
   }
 
   /**
-   * Remove the oldest message to make space
+   * Remove the oldest message from the broadcast channel
+   * Implements LRU (Least Recently Used) eviction strategy
    */
   private removeOldestMessage(): void {
     const currentCount = Atomics.load(this.messageCount, 0);
-    if (currentCount > 0) {
-      // In a real implementation, you would implement a proper message eviction strategy
-      // For now, we'll just decrement the count
+    if (currentCount <= 0) {
+      return;
+    }
+
+    // Acquire mutex for thread-safe operation
+    if (!SharedMemoryAtomics.acquireMutex(this.mutex, 0, 100)) {
+      logger.warn('Failed to acquire mutex for message removal');
+      return;
+    }
+
+    try {
+      // Double-check count after acquiring mutex
+      const count = Atomics.load(this.messageCount, 0);
+      if (count <= 0) {
+        return;
+      }
+
+      // Find the oldest message by checking timestamps
+      let oldestIndex = 0;
+      let oldestTimestamp = Number.MAX_SAFE_INTEGER;
+
+      for (let i = 0; i < count; i++) {
+        const offset = this.calculateMessageOffset(i);
+        const timestamp = this.readMessageTimestamp(offset);
+
+        if (timestamp < oldestTimestamp) {
+          oldestTimestamp = timestamp;
+          oldestIndex = i;
+        }
+      }
+
+      // Remove the oldest message by shifting remaining messages
+      if (count > 1) {
+        // Shift messages after the oldest one
+        for (let i = oldestIndex; i < count - 1; i++) {
+          const currentOffset = this.calculateMessageOffset(i);
+          const nextOffset = this.calculateMessageOffset(i + 1);
+
+          // Copy message from next position to current position
+          this.copyMessage(nextOffset, currentOffset);
+        }
+      }
+
+      // Clear the last message slot
+      const lastOffset = this.calculateMessageOffset(count - 1);
+      this.clearMessageSlot(lastOffset);
+
+      // Update message count
       Atomics.add(this.messageCount, 0, -1);
-      logger.debug('Removed oldest message');
+
+      // Update message ID if needed
+      const currentMessageId = Atomics.load(this.messageId, 0);
+      if (currentMessageId > 0) {
+        Atomics.add(this.messageId, 0, -1);
+      }
+
+      logger.debug('Removed oldest message', {
+        removedIndex: oldestIndex,
+        remainingCount: count - 1,
+        oldestTimestamp,
+      });
+    } finally {
+      SharedMemoryAtomics.releaseMutex(this.mutex, 0);
+    }
+  }
+
+  /**
+   * Read message timestamp from buffer
+   */
+  private readMessageTimestamp(offset: number): number {
+    const timestampView = new DataView(
+      this.data.buffer,
+      this.data.byteOffset + offset + 12, // timestamp is at offset 12 in header
+      4
+    );
+    return timestampView.getUint32(0, false);
+  }
+
+  /**
+   * Copy message from source to destination offset
+   */
+  private copyMessage(sourceOffset: number, destOffset: number): void {
+    // Read message size from source
+    const sizeView = new DataView(
+      this.data.buffer,
+      this.data.byteOffset + sourceOffset,
+      4
+    );
+    const messageSize = sizeView.getUint32(0, false);
+    const totalSize = 24 + messageSize; // 24 bytes for header
+
+    // Copy the entire message (header + data)
+    const sourceData = this.data.slice(sourceOffset, sourceOffset + totalSize);
+    this.data.set(sourceData, destOffset);
+  }
+
+  /**
+   * Clear a message slot in the buffer
+   */
+  private clearMessageSlot(offset: number): void {
+    // Clear header (24 bytes)
+    const headerView = new DataView(
+      this.data.buffer,
+      this.data.byteOffset + offset,
+      24
+    );
+
+    // Set all header fields to 0
+    headerView.setUint32(0, 0, false); // size
+    headerView.setUint32(4, 0, false); // type
+    headerView.setUint32(8, 0, false); // flags
+    headerView.setUint32(12, 0, false); // timestamp
+    headerView.setUint32(16, 0, false); // reserved
+    headerView.setUint32(20, 0, false); // checksum
+
+    // Clear data portion (set to 0) - use a reasonable chunk size
+    const maxClearSize = 1024; // Limit clear size to avoid performance issues
+    for (let i = 0; i < maxClearSize; i += 4) {
+      const clearView = new DataView(
+        this.data.buffer,
+        this.data.byteOffset + offset + 24 + i,
+        4
+      );
+      clearView.setUint32(0, 0, false);
     }
   }
 

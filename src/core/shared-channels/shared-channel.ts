@@ -473,6 +473,98 @@ export class SharedChannel<T> {
   }
 
   /**
+   * Clear all messages from the channel
+   */
+  clear(): void {
+    if (this.isShuttingDown) {
+      return;
+    }
+
+    // Acquire mutex for thread-safe operation
+    if (!SharedMemoryAtomics.acquireMutex(this.mutex, 0, 100)) {
+      return;
+    }
+
+    try {
+      // Reset all control values
+      Atomics.store(this.head, 0, 0);
+      Atomics.store(this.tail, 0, 0);
+      Atomics.store(this.count, 0, 0);
+
+      // Wake up all waiting threads
+      const waitingSenders = Atomics.load(this.waitingSenders, 0);
+      const waitingReceivers = Atomics.load(this.waitingReceivers, 0);
+
+      if (waitingSenders > 0) {
+        SharedMemoryAtomics.notifyAllConditions(this.sendCondition, 0);
+        Atomics.store(this.waitingSenders, 0, 0);
+      }
+
+      if (waitingReceivers > 0) {
+        SharedMemoryAtomics.notifyAllConditions(this.receiveCondition, 0);
+        Atomics.store(this.waitingReceivers, 0, 0);
+      }
+    } finally {
+      SharedMemoryAtomics.releaseMutex(this.mutex, 0);
+    }
+  }
+
+  /**
+   * Check if the channel is healthy
+   */
+  isHealthy(): boolean {
+    if (this.isShuttingDown) {
+      return false;
+    }
+
+    try {
+      // Check if control structures are accessible
+      const count = Atomics.load(this.count, 0);
+      const head = Atomics.load(this.head, 0);
+      const tail = Atomics.load(this.tail, 0);
+
+      // Validate bounds
+      if (count < 0 || count > this.config.maxMessages) {
+        return false;
+      }
+
+      if (head < 0 || head >= this.config.maxMessages) {
+        return false;
+      }
+
+      if (tail < 0 || tail >= this.config.maxMessages) {
+        return false;
+      }
+
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Get memory usage information
+   */
+  getMemoryUsage(): {
+    totalSize: number;
+    dataSize: number;
+    controlSize: number;
+    usedSize: number;
+    freeSize: number;
+  } {
+    const length = this.getLength();
+    const usedSize = length * this.messageSize;
+
+    return {
+      totalSize: this.config.bufferSize + 64, // +64 for control structures
+      dataSize: this.config.bufferSize,
+      controlSize: 64,
+      usedSize,
+      freeSize: this.config.bufferSize - usedSize,
+    };
+  }
+
+  /**
    * Wait for space and send data
    */
   private async waitAndSend(data: T): Promise<void> {
@@ -553,49 +645,232 @@ export class SharedChannel<T> {
 
   /**
    * Try to send a batch of messages
-   * @todo Implement batch sending
    */
-  private trySendBatch(_dataArray: T[]): boolean {
-    // Implementation for batch sending
-    // This would check available space and send all messages atomically
-    return false; // Placeholder
+  private trySendBatch(dataArray: T[]): boolean {
+    if (this.isShuttingDown || dataArray.length === 0) {
+      return false;
+    }
+
+    // Check if we have enough space for the entire batch
+    const totalSize = dataArray.reduce((sum, data) => {
+      return sum + this.headerSize + this.serialize(data).length;
+    }, 0);
+
+    if (totalSize > this.config.bufferSize) {
+      return false;
+    }
+
+    const currentCount = Atomics.load(this.count, 0);
+    const availableSpace = this.config.maxMessages - currentCount;
+
+    if (availableSpace < dataArray.length) {
+      return false;
+    }
+
+    // Acquire mutex for thread-safe batch operation
+    if (!SharedMemoryAtomics.acquireMutex(this.mutex, 0, 100)) {
+      return false;
+    }
+
+    try {
+      // Double-check space after acquiring mutex
+      const count = Atomics.load(this.count, 0);
+      const space = this.config.maxMessages - count;
+
+      if (space < dataArray.length) {
+        return false;
+      }
+
+      // Write all messages to buffer
+      const tail = Atomics.load(this.tail, 0);
+
+      for (let i = 0; i < dataArray.length; i++) {
+        const data = dataArray[i];
+        const serializedData = this.serialize(data as T);
+        const offset = this.calculateMessageOffset(
+          (tail + i) % this.config.maxMessages
+        );
+
+        this.writeMessage(offset, data as T, serializedData);
+      }
+
+      // Update tail and count atomically
+      Atomics.store(
+        this.tail,
+        0,
+        (tail + dataArray.length) % this.config.maxMessages
+      );
+      Atomics.add(this.count, 0, dataArray.length);
+
+      // Signal waiting receivers
+      const waitingReceivers = Atomics.load(this.waitingReceivers, 0);
+      if (waitingReceivers > 0) {
+        const signals = Math.min(waitingReceivers, dataArray.length);
+        SharedMemoryAtomics.notifyCondition(this.receiveCondition, 0, signals);
+        Atomics.add(this.waitingReceivers, 0, -signals);
+      }
+
+      return true;
+    } finally {
+      SharedMemoryAtomics.releaseMutex(this.mutex, 0);
+    }
   }
 
   /**
    * Wait and send a batch of messages
-   * @todo Implement waiting and batch sending
    */
-  private async waitAndSendBatch(_dataArray: T[]): Promise<void> {
-    // Implementation for waiting and batch sending
-    // This would wait for space and then send the batch
+  private async waitAndSendBatch(dataArray: T[]): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        reject(new Error('Batch send timeout'));
+      }, this.config.timeout);
+
+      const checkAndSendBatch = () => {
+        if (this.isShuttingDown) {
+          clearTimeout(timeoutId);
+          reject(new Error('Channel is shutting down'));
+          return;
+        }
+
+        if (this.trySendBatch(dataArray)) {
+          clearTimeout(timeoutId);
+          resolve();
+          return;
+        }
+
+        // Increment waiting senders
+        Atomics.add(this.waitingSenders, 0, 1);
+
+        // Wait for condition
+        SharedMemoryAtomics.waitCondition(this.sendCondition, 0, 0, 100);
+
+        // Decrement waiting senders
+        Atomics.add(this.waitingSenders, 0, -1);
+
+        // Try again
+        setImmediate(checkAndSendBatch);
+      };
+
+      checkAndSendBatch();
+    });
   }
 
   /**
    * Try to receive a batch of messages
-   * @todo Implement batch receiving
    */
-  private tryReceiveBatch(_count: number): T[] {
-    // Implementation for batch receiving
-    // This would read multiple messages atomically
-    return []; // Placeholder
+  private tryReceiveBatch(count: number): T[] {
+    if (this.isShuttingDown || count <= 0) {
+      return [];
+    }
+
+    const currentCount = Atomics.load(this.count, 0);
+    if (currentCount === 0) {
+      return [];
+    }
+
+    // const availableCount = Math.min(count, currentCount);
+
+    // Acquire mutex for thread-safe batch operation
+    if (!SharedMemoryAtomics.acquireMutex(this.mutex, 0, 100)) {
+      return [];
+    }
+
+    try {
+      // Double-check count after acquiring mutex
+      const countAfterMutex = Atomics.load(this.count, 0);
+      if (countAfterMutex === 0) {
+        return [];
+      }
+
+      const actualCount = Math.min(count, countAfterMutex);
+      const results: T[] = [];
+
+      // Read all available messages
+      const head = Atomics.load(this.head, 0);
+
+      for (let i = 0; i < actualCount; i++) {
+        const offset = this.calculateMessageOffset(
+          (head + i) % this.config.maxMessages
+        );
+        const data = this.readMessage(offset);
+        results.push(data);
+      }
+
+      // Update head and count atomically
+      Atomics.store(
+        this.head,
+        0,
+        (head + actualCount) % this.config.maxMessages
+      );
+      Atomics.add(this.count, 0, -actualCount);
+
+      // Signal waiting senders
+      const waitingSenders = Atomics.load(this.waitingSenders, 0);
+      if (waitingSenders > 0) {
+        const signals = Math.min(waitingSenders, actualCount);
+        SharedMemoryAtomics.notifyCondition(this.sendCondition, 0, signals);
+        Atomics.add(this.waitingSenders, 0, -signals);
+      }
+
+      return results;
+    } finally {
+      SharedMemoryAtomics.releaseMutex(this.mutex, 0);
+    }
   }
 
   /**
    * Wait and receive a batch of messages
-   * @todo Implement waiting and batch receiving
    */
-  private async waitAndReceiveBatch(_count: number): Promise<T[]> {
-    // Implementation for waiting and batch receiving
-    // This would wait for data and then receive the batch
-    return []; // Placeholder
+  private async waitAndReceiveBatch(count: number): Promise<T[]> {
+    return new Promise((resolve, reject) => {
+      const timeoutId = setTimeout(() => {
+        reject(new Error('Batch receive timeout'));
+      }, this.config.timeout);
+
+      const checkAndReceiveBatch = () => {
+        if (this.isShuttingDown) {
+          clearTimeout(timeoutId);
+          reject(new Error('Channel is shutting down'));
+          return;
+        }
+
+        const results = this.tryReceiveBatch(count);
+        if (results.length > 0) {
+          clearTimeout(timeoutId);
+          resolve(results);
+          return;
+        }
+
+        // Increment waiting receivers
+        Atomics.add(this.waitingReceivers, 0, 1);
+
+        // Wait for condition
+        SharedMemoryAtomics.waitCondition(this.receiveCondition, 0, 0, 100);
+
+        // Decrement waiting receivers
+        Atomics.add(this.waitingReceivers, 0, -1);
+
+        // Try again
+        setImmediate(checkAndReceiveBatch);
+      };
+
+      checkAndReceiveBatch();
+    });
   }
 
   /**
    * Calculate message offset in the buffer
-   * @todo Implement message offset calculation
    */
   private calculateMessageOffset(index: number): number {
-    return (index * this.messageSize) % this.config.bufferSize;
+    // Ensure the offset is within the data buffer bounds
+    const offset = (index * this.messageSize) % this.config.bufferSize;
+
+    // Validate offset bounds
+    if (offset < 0 || offset + this.messageSize > this.config.bufferSize) {
+      throw new Error(`Invalid message offset: ${offset}`);
+    }
+
+    return offset;
   }
 
   /**
