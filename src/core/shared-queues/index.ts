@@ -1,2 +1,3 @@
-export * from './lock-free-queue';
-export * from './multiple-producer-queue';
+export { LockFreeQueue } from './lock-free-queue';
+export { MultiProducerQueue } from './multi-producer-queue';
+export { PriorityQueue, type PriorityItem } from './priority-queue';
