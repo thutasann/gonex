@@ -290,6 +290,7 @@ main() {
         "core/ticker:Ticker"
         "core/rwmutex:RwMutex"
         "core/cond:Cond"
+        "core/shared-memory:Shared Memory"
     )
     
     # Run each directory
