@@ -8,6 +8,7 @@ export * from './rwmutex';
 export * from './select';
 export * from './semaphore';
 export * from './shared-channels';
+export * from './shared-maps';
 export * from './shared-memory';
 export * from './timing';
 export * from './waitgroup';
