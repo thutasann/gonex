@@ -246,8 +246,11 @@ export class LockFreeQueue<T> {
    */
   destroy(): void {
     if (this.memoryManager) {
-      // Note: In a real implementation, you'd need to track buffer names
-      // this.memoryManager.releaseBuffer(bufferName);
+      // Release the buffer
+      this.memoryManager.releaseBuffer('LockFreeQueue');
+
+      // Shutdown the memory manager to stop the cleanup timer
+      this.memoryManager.shutdown();
     }
   }
 }
