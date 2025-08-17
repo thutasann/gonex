@@ -291,6 +291,7 @@ main() {
         "core/rwmutex:RwMutex"
         "core/cond:Cond"
         "core/shared-memory:Shared Memory"
+        "core/shared-channel:Shared Channel"
     )
     
     # Run each directory

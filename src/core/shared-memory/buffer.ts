@@ -100,13 +100,16 @@ export class SharedMemoryBuffer {
 
     if (existingBuffer) {
       this.buffer = existingBuffer;
-      this.validateExistingBuffer();
     } else {
       this.buffer = new SharedArrayBuffer(size + this.headerSize);
     }
 
     this.dataView = new DataView(this.buffer);
     this.uint8View = new Uint8Array(this.buffer, this.dataOffset);
+
+    if (existingBuffer) {
+      this.validateExistingBuffer();
+    }
 
     this.header = {
       magic: BUFFER_MAGIC,
