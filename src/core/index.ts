@@ -11,6 +11,7 @@ export * from './shared-channels';
 export * from './shared-maps';
 export * from './shared-memory';
 export * from './shared-pools';
+export * from './shared-queues';
 export * from './timing';
 export * from './waitgroup';
 export * from './worker';

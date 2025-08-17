@@ -185,6 +185,7 @@ export class SharedMemoryManager {
    */
   releaseBuffer(name: string, workerId?: number): boolean {
     const buffer = this.buffers.get(name);
+    console.log('buffer --> ', buffer);
     if (!buffer) {
       return false;
     }
