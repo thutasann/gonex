@@ -109,9 +109,8 @@ export class SharedChannel<T> {
     const flags = this.config.enableChecksum ? BufferFlags.CHECKSUMED : 0;
 
     this.buffer = new SharedMemoryBuffer(
-      this.config.bufferSize,
-      { flags },
-      new SharedArrayBuffer(this.config.bufferSize + 64) // +64 for control structures
+      this.config.bufferSize + 64, // +64 for control structures
+      { flags }
     );
 
     // Initialize control structures at the beginning of the buffer
