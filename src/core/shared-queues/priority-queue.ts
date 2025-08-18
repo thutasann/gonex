@@ -41,7 +41,7 @@ export class PriorityQueue<T> {
     // Calculate buffer size: header (3 * 4 bytes) + heap indices + data storage
     const headerSize = 12; // 3 Int32Array elements (mutex, condition, size)
     const heapSize = capacity * 4; // 4 bytes per heap index
-    const dataSize = capacity * 16; // 16 bytes per item (priority + timestamp + data)
+    const dataSize = capacity * 24; // 24 bytes per item (priority + timestamp + data + padding)
     const totalSize = headerSize + heapSize + dataSize;
 
     // Create shared buffer
@@ -230,7 +230,7 @@ export class PriorityQueue<T> {
    * @param priority - The priority of the item (higher numbers = higher priority)
    * @returns Promise that resolves when the item is enqueued
    */
-  async enqueue(data: T, priority: number): Promise<void> {
+  async enqueue(data: T, priority?: number): Promise<void> {
     while (true) {
       if (this.acquireLock()) {
         try {
@@ -245,7 +245,7 @@ export class PriorityQueue<T> {
 
           // Create priority item
           const item: PriorityItem<T> = {
-            priority,
+            priority: priority || 1,
             data,
             timestamp: Date.now(),
           };
@@ -276,10 +276,57 @@ export class PriorityQueue<T> {
   }
 
   /**
-   * Dequeues the highest priority item from the queue.
-   * @returns Promise that resolves to the dequeued item
+   * Non-async version of enqueue for performance testing.
+   * @param data - The data to enqueue
+   * @param priority - The priority of the item
+   * @returns true if successful, false if queue is full
    */
-  async dequeue(): Promise<T> {
+  enqueueSync(data: T, priority?: number): boolean {
+    const itemPriority = priority ?? (typeof data === 'number' ? data : 1);
+
+    if (this.acquireLock()) {
+      try {
+        const currentSize = Atomics.load(this.size, 0);
+
+        if (currentSize >= this.capacity) {
+          return false; // Queue is full
+        }
+
+        // Create priority item
+        const item: PriorityItem<T> = {
+          priority: itemPriority,
+          data,
+          timestamp: Date.now(),
+        };
+
+        // Store the item in the data array
+        const dataIndex = currentSize;
+        this.storePriorityItem(dataIndex, item);
+
+        // Add to heap
+        this.heap[currentSize] = dataIndex;
+
+        // Update size
+        Atomics.add(this.size, 0, 1);
+
+        // Bubble up to maintain heap property
+        this.bubbleUp(currentSize);
+
+        // Signal waiting consumers
+        this.signalCondition();
+        return true;
+      } finally {
+        this.releaseLock();
+      }
+    }
+    return false; // Failed to acquire lock
+  }
+
+  /**
+   * Dequeues the highest priority item from the queue.
+   * @returns Promise that resolves to the dequeued item, or null if the queue is empty
+   */
+  async dequeue(): Promise<T | null> {
     while (true) {
       if (this.acquireLock()) {
         try {
@@ -319,6 +366,46 @@ export class PriorityQueue<T> {
         await new Promise(resolve => setTimeout(resolve, 1));
       }
     }
+  }
+
+  /**
+   * Non-async version of dequeue for performance testing.
+   * @returns The dequeued item, or null if the queue is empty
+   */
+  dequeueSync(): T | null {
+    if (this.acquireLock()) {
+      try {
+        const currentSize = Atomics.load(this.size, 0);
+
+        if (currentSize <= 0) {
+          return null; // Queue is empty
+        }
+
+        // Get the highest priority item (root of heap)
+        const dataIndex = this.heap[0] || 0;
+        const item = this.loadPriorityItem(dataIndex);
+
+        // Remove the root and replace with last item
+        const lastDataIndex = this.heap[currentSize - 1];
+        this.heap[0] = lastDataIndex || 0;
+        this.heap[currentSize - 1] = -1; // Mark as invalid
+
+        // Update size
+        Atomics.sub(this.size, 0, 1);
+
+        // Bubble down to maintain heap property
+        if (this.getSize() > 0) {
+          this.bubbleDown(0);
+        }
+
+        // Signal waiting producers
+        this.signalCondition();
+        return item.data;
+      } finally {
+        this.releaseLock();
+      }
+    }
+    return null; // Failed to acquire lock
   }
 
   /**
@@ -424,7 +511,7 @@ export class PriorityQueue<T> {
    * @param item - The priority item to store
    */
   private storePriorityItem(position: number, item: PriorityItem<T>): void {
-    const offset = position * 16; // 16 bytes per item
+    const offset = position * 24; // 24 bytes per item
 
     // Store priority (4 bytes)
     this.dataView.setInt32(offset, item.priority, true);
@@ -432,7 +519,7 @@ export class PriorityQueue<T> {
     // Store timestamp (8 bytes)
     this.dataView.setBigUint64(offset + 4, BigInt(item.timestamp), true);
 
-    // Store data (4 bytes - simplified, assumes data is small)
+    // Store data (8 bytes - simplified, assumes data is small)
     if (typeof item.data === 'number') {
       this.dataView.setFloat64(offset + 12, item.data, true);
     } else {
@@ -448,7 +535,7 @@ export class PriorityQueue<T> {
    * @returns The loaded priority item
    */
   private loadPriorityItem(position: number): PriorityItem<T> {
-    const offset = position * 16;
+    const offset = position * 24;
 
     const priority = this.dataView.getInt32(offset, true);
     const timestamp = Number(this.dataView.getBigUint64(offset + 4, true));

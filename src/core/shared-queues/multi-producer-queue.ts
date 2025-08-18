@@ -1,6 +1,27 @@
 /* eslint-disable no-constant-condition */
 import { SharedMemoryManager } from '../shared-memory';
 
+// Import Atomics for atomic operations
+declare const Atomics: {
+  store: (array: Int32Array, index: number, value: number) => number;
+  load: (array: Int32Array, index: number) => number;
+  add: (array: Int32Array, index: number, value: number) => number;
+  sub: (array: Int32Array, index: number, value: number) => number;
+  compareExchange: (
+    array: Int32Array,
+    index: number,
+    expected: number,
+    replacement: number
+  ) => number;
+  notify: (array: Int32Array, index: number, count: number) => number;
+  wait: (
+    array: Int32Array,
+    index: number,
+    expected: number,
+    timeout?: number
+  ) => 'ok' | 'not-equal' | 'timed-out';
+};
+
 /**
  * A multi-producer queue implementation using SharedArrayBuffer and mutex-based locking.
  * This queue is designed for scenarios where multiple threads need to enqueue items
@@ -30,8 +51,8 @@ export class MultiProducerQueue<T> {
     this.capacity = capacity;
     this.memoryManager = memoryManager || new SharedMemoryManager();
 
-    // Calculate buffer size: header (4 * 4 bytes) + data capacity
-    const headerSize = 16; // 4 Int32Array elements (mutex, condition, head, tail, size)
+    // Calculate buffer size: header (5 * 4 bytes) + data capacity
+    const headerSize = 20; // 5 Int32Array elements (mutex, condition, head, tail, size)
     const dataSize = capacity * 8; // Assume 8 bytes per item
     const totalSize = headerSize + dataSize;
 
@@ -46,7 +67,7 @@ export class MultiProducerQueue<T> {
     this.condition = new Int32Array(this.buffer, 4, 1);
     this.head = new Int32Array(this.buffer, 8, 1);
     this.tail = new Int32Array(this.buffer, 12, 1);
-    this.size = new Int32Array(this.buffer, 8, 1);
+    this.size = new Int32Array(this.buffer, 16, 1);
 
     // Initialize data array
     this.data = new Uint8Array(this.buffer, headerSize, dataSize);
@@ -99,9 +120,9 @@ export class MultiProducerQueue<T> {
   /**
    * Enqueues an item into the queue.
    * @param data - The data to enqueue
-   * @returns Promise that resolves when the item is enqueued
+   * @returns Promise that resolves to true if the item was enqueued, false if the queue is full
    */
-  async enqueue(data: T): Promise<void> {
+  async enqueue(data: T): Promise<boolean> {
     while (true) {
       // Try to acquire the lock
       if (this.acquireLock()) {
@@ -126,7 +147,7 @@ export class MultiProducerQueue<T> {
 
           // Signal waiting consumers
           this.signalCondition();
-          return;
+          return true;
         } finally {
           this.releaseLock();
         }
@@ -139,9 +160,9 @@ export class MultiProducerQueue<T> {
 
   /**
    * Dequeues an item from the queue.
-   * @returns Promise that resolves to the dequeued item
+   * @returns Promise that resolves to the dequeued item, or null if the queue is empty
    */
-  async dequeue(): Promise<T> {
+  async dequeue(): Promise<T | null> {
     while (true) {
       // Try to acquire the lock
       if (this.acquireLock()) {
@@ -211,14 +232,14 @@ export class MultiProducerQueue<T> {
 
   /**
    * Attempts to dequeue an item without blocking.
-   * @returns The dequeued item, or undefined if the queue is empty
+   * @returns The dequeued item, or null if the queue is empty
    */
-  tryDequeue(): T | undefined {
+  tryDequeue(): T | null {
     if (this.acquireLock()) {
       try {
         const currentSize = Atomics.load(this.size, 0);
         if (currentSize <= 0) {
-          return undefined; // Queue is empty
+          return null; // Queue is empty
         }
 
         // Dequeue the item
@@ -237,7 +258,7 @@ export class MultiProducerQueue<T> {
         this.releaseLock();
       }
     }
-    return undefined; // Failed to acquire lock
+    return null; // Failed to acquire lock
   }
 
   /**
@@ -374,8 +395,11 @@ export class MultiProducerQueue<T> {
    */
   destroy(): void {
     if (this.memoryManager) {
-      // Note: In a real implementation, you'd need to track buffer names
-      // this.memoryManager.releaseBuffer(bufferName);
+      // Release the buffer
+      this.memoryManager.releaseBuffer('MultiProducerQueue');
+
+      // Shutdown the memory manager to stop the cleanup timer
+      this.memoryManager.shutdown();
     }
   }
 }
