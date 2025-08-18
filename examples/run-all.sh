@@ -220,8 +220,8 @@ run_directory() {
         return 1
     fi
     
-    # Find all .js files in the directory and subdirectories
-    local js_files=($(find "$dir_path" -name "*.js" -type f | sort))
+    # Find all .js files in the directory and subdirectories, excluding worker files
+    local js_files=($(find "$dir_path" -name "*.js" -type f | grep -v -i "worker" | sort))
     
     if [ ${#js_files[@]} -eq 0 ]; then
         print_status "WARNING" "No .js files found in $dir_name"
@@ -292,6 +292,7 @@ main() {
         "core/cond:Cond"
         "core/shared-memory:Shared Memory"
         "core/shared-channel:Shared Channel"
+        "core/shared-queues:Shared Queues"
     )
     
     # Run each directory
