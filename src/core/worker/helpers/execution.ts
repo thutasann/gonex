@@ -372,15 +372,29 @@ export function createExecutionEnvironment(
             
             for (const modulePath of possiblePaths) {
               try {
-                const module = require(modulePath);
-                // Always return an object with default property for consistency
-                // This supports both: await import('moment') and (await import('moment')).default
-                if (module.default === undefined) {
-                  // CommonJS module - return { default: module, ...module }
-                  return { default: module, ...module };
+                // For .js files, try to use dynamic import first (ES modules)
+                if (id.endsWith('.js')) {
+                  try {
+                    // Use dynamic import for ES modules
+                    const module = await import(modulePath);
+                    return module;
+                  } catch (importError) {
+                    // If dynamic import fails, fall back to require (CommonJS)
+                    const module = require(modulePath);
+                    if (module.default === undefined) {
+                      return { default: module, ...module };
+                    } else {
+                      return { default: module.default, ...module };
+                    }
+                  }
                 } else {
-                  // ES module - return { default: module.default, ...module }
-                  return { default: module.default, ...module };
+                  // For .cjs files, use require (CommonJS)
+                  const module = require(modulePath);
+                  if (module.default === undefined) {
+                    return { default: module, ...module };
+                  } else {
+                    return { default: module.default, ...module };
+                  }
                 }
               } catch (localError) {
                 // Continue to next path

@@ -24,6 +24,8 @@ async function testMomentImports() {
       async () => {
         const moment = (await import('moment')).default;
 
+        const { sleep } = await import('gonex');
+        await sleep(300);
         console.log('Moment imported successfully in worker thread');
         return {
           version: moment.version,
@@ -40,8 +42,10 @@ async function testMomentImports() {
     console.log('\n2. Testing moment with date formatting...');
     const result2 = await go(
       async () => {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
         const moment = require('moment');
+        const sleep = (await import('./helpers/sleep.cjs')).default;
+
+        await sleep(300);
         console.log('Moment imported for date formatting');
 
         const now = moment();
@@ -62,6 +66,9 @@ async function testMomentImports() {
     const result3 = await go(
       async () => {
         const lodash = (await import('lodash')).default;
+        const sleep = (await import('./helpers/sleep.js')).default;
+
+        await sleep(300);
         console.log('Lodash imported successfully');
         return {
           isArray: lodash.isArray([1, 2, 3]),
