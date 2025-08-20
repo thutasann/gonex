@@ -57,6 +57,43 @@ async function testMomentImports() {
     );
     console.log('Moment formatting result:', result2);
 
+    // Test 3: Lodash Import Testing
+    console.log('\n3. Testing lodash import...');
+    const result3 = await go(
+      async () => {
+        const lodash = (await import('lodash')).default;
+        console.log('Lodash imported successfully');
+        return {
+          isArray: lodash.isArray([1, 2, 3]),
+          capitalize: lodash.capitalize('hello'),
+        };
+      },
+      [],
+      { useWorkerThreads: true }
+    );
+    console.log('Lodash result:', result3);
+
+    // Test 4: chalk import testing
+    console.log('\n4. Testing chalk import...');
+    const result4 = await go(
+      async () => {
+        const chalk = (await import('chalk')).default;
+        console.log('Chalk imported successfully');
+        console.log(chalk.red('Hello, world!'));
+        console.log(chalk.green('Hello, world!'));
+        console.log(chalk.blue('Hello, world!'));
+
+        return {
+          red: chalk.red('Hello, world!'),
+          green: chalk.green('Hello, world!'),
+          blue: chalk.blue('Hello, world!'),
+        };
+      },
+      [],
+      { useWorkerThreads: true }
+    );
+    console.log('Chalk result:', result4);
+
     console.log('\nAll moment import tests completed successfully!');
   } catch (error) {
     console.error('Test failed:', error);
