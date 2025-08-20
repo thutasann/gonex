@@ -85,14 +85,21 @@ export function createEnhancedRequire(
               path.resolve('${currentWorkingDir}', id),
               path.resolve(process.cwd(), id),
               path.resolve('${userProjectDir}', id),
-              path.resolve('${userProjectDir}', 'examples', id),
-              path.resolve('${userProjectDir}', 'examples', 'core', 'goroutines', id),
               path.resolve('${currentWorkingDir}', 'core', 'goroutines', id),
             ];
             
             for (const modulePath of possiblePaths) {
               try {
-                return originalRequire(modulePath);
+                const module = originalRequire(modulePath);
+                // Apply smart proxy for .default access
+                return new Proxy(module, {
+                  get(target, prop) {
+                    if (prop === 'default') {
+                      return target.default !== undefined ? target.default : target;
+                    }
+                    return target[prop];
+                  }
+                });
               } catch (localError) {
                 // Continue to next path
               }
@@ -104,16 +111,23 @@ export function createEnhancedRequire(
           // For npm packages, try node_modules directories in this order:
           const possibleNodeModulesPaths = [
             path.resolve('${userProjectDir}', 'node_modules', id),
-            path.resolve('${userProjectDir}', 'examples', 'node_modules', id),
             path.resolve('${currentWorkingDir}', 'node_modules', id),
             path.resolve('${currentWorkingDir}', '..', 'node_modules', id),
             path.resolve('${currentWorkingDir}', '..', '..', 'node_modules', id),
-            path.resolve('${currentWorkingDir}', '..', '..', 'examples', 'node_modules', id),
           ];
           
           for (const modulePath of possibleNodeModulesPaths) {
             try {
-              return originalRequire(modulePath);
+              const module = originalRequire(modulePath);
+              // Apply smart proxy for .default access
+              return new Proxy(module, {
+                get(target, prop) {
+                  if (prop === 'default') {
+                    return target.default !== undefined ? target.default : target;
+                  }
+                  return target[prop];
+                }
+              });
             } catch (moduleError) {
               // Continue to next path
             }
@@ -126,6 +140,24 @@ export function createEnhancedRequire(
 }
 
 /**
+ * Transform import() calls to use our custom import function
+ * This preserves the await import() syntax while making it work in worker threads
+ */
+function transformImportCalls(userFunction: string): string {
+  // Replace await import('module') with await customImport('module')
+  // This regex matches: await import('module') or await import("module")
+  let transformed = userFunction;
+
+  // Replace import() calls with customImport() calls
+  transformed = transformed.replace(
+    /await\s+import\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g,
+    'await customImport("$1")'
+  );
+
+  return transformed;
+}
+
+/**
  * Create execution environment code
  */
 export function createExecutionEnvironment(
@@ -133,11 +165,10 @@ export function createExecutionEnvironment(
   userProjectDir: string,
   userFunction: string
 ): string {
-  const enhancedRequire = createEnhancedRequire(
-    currentWorkingDir,
-    userProjectDir
-  );
   const contextProxy = createContextProxy();
+
+  // Transform import() calls to require() calls
+  const transformedFunction = transformImportCalls(userFunction);
 
   return `
       (async function(...args) {
@@ -311,14 +342,105 @@ export function createExecutionEnvironment(
           });
         };
         
-        // Set up module resolution
-        ${enhancedRequire}
+
+        
+        // Create a custom import function that works in worker threads
+        // This mimics the behavior of ES module dynamic imports
+        var customImport = async function(id) {
+          const path = require('path');
+          
+          // Handle Node.js built-in modules (node:fs, node:path, etc.)
+          if (id.startsWith('node:')) {
+            const moduleName = id.substring(5); // Remove 'node:' prefix
+            try {
+              const module = require(moduleName);
+              // For built-in modules, return { default: module, ...module }
+              return { default: module, ...module };
+            } catch (error) {
+              throw new Error('Built-in module not found: ' + moduleName);
+            }
+          }
+          
+          // Handle local files (relative paths)
+          if (id.startsWith('./') || id.startsWith('../') || id.endsWith('.js')) {
+            const possiblePaths = [
+              path.resolve('${currentWorkingDir}', id),
+              path.resolve(process.cwd(), id),
+              path.resolve('${userProjectDir}', id),
+              path.resolve('${currentWorkingDir}', 'core', 'goroutines', id),
+            ];
+            
+            for (const modulePath of possiblePaths) {
+              try {
+                // For .js files, try to use dynamic import first (ES modules)
+                if (id.endsWith('.js')) {
+                  try {
+                    // Use dynamic import for ES modules
+                    const module = await import(modulePath);
+                    return module;
+                  } catch (importError) {
+                    // If dynamic import fails, fall back to require (CommonJS)
+                    const module = require(modulePath);
+                    if (module.default === undefined) {
+                      return { default: module, ...module };
+                    } else {
+                      return { default: module.default, ...module };
+                    }
+                  }
+                } else {
+                  // For .cjs files, use require (CommonJS)
+                  const module = require(modulePath);
+                  if (module.default === undefined) {
+                    return { default: module, ...module };
+                  } else {
+                    return { default: module.default, ...module };
+                  }
+                }
+              } catch (localError) {
+                // Continue to next path
+              }
+            }
+            
+            throw new Error('Module not found: ' + id);
+          }
+          
+          // For npm packages, try node_modules directories in this order:
+          const possibleNodeModulesPaths = [
+            path.resolve('${userProjectDir}', 'node_modules', id),
+            path.resolve('${currentWorkingDir}', 'node_modules', id),
+            path.resolve('${currentWorkingDir}', '..', 'node_modules', id),
+            path.resolve('${currentWorkingDir}', '..', '..', 'node_modules', id),
+          ];
+          
+          for (const modulePath of possibleNodeModulesPaths) {
+            try {
+              const module = require(modulePath);
+              // Always return an object with default property for consistency
+              // This supports both: await import('moment') and (await import('moment')).default
+              if (module.default === undefined) {
+                // CommonJS module - return { default: module, ...module }
+                return { default: module, ...module };
+              } else {
+                // ES module - return { default: module.default, ...module }
+                return { default: module.default, ...module };
+              }
+            } catch (moduleError) {
+              // Continue to next path
+            }
+          }
+          
+          throw new Error('Package not found: ' + id);
+        };
+        
+        // Make the custom import function available globally
+        // Users can call customImport('moment') instead of import('moment')
+        globalThis.customImport = customImport;
         
         // Resolve function arguments and handle context objects
         ${contextProxy}
         
-        // Create the user function
-        ${userFunction}
+        // Create the user function (with transformed import calls)
+        ${transformedFunction}
         
         // Execute the function with the resolved arguments
         return await fn(...resolvedArgs);

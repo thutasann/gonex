@@ -1,5 +1,5 @@
 import os from 'os';
-import { join } from 'path';
+import path, { join } from 'path';
 import { Worker } from 'worker_threads';
 import type {
   MessageHandlers,
@@ -318,9 +318,11 @@ export class WorkerThreadManager {
    */
   private async createWorker(workerId: number): Promise<void> {
     // Get the user's project directory (where the go() function is called from)
+    // Use process.cwd() to get the actual working directory where the user ran the code
     const userProjectDir = process.cwd();
 
     // Get the current working directory for resolving relative imports
+    // This should be the user's project directory, not the dist directory
     const currentWorkingDir = process.cwd();
 
     const worker = new Worker(join(__dirname, './worker.js'), {
@@ -328,6 +330,15 @@ export class WorkerThreadManager {
         workerId,
         userProjectDir, // Pass the user's project directory
         currentWorkingDir, // Pass the current working directory
+      },
+      env: {
+        ...process.env,
+        ['NODE_PATH']: [
+          path.join(userProjectDir, 'node_modules'),
+          process.env['NODE_PATH'],
+        ]
+          .filter(Boolean)
+          .join(path.delimiter),
       },
     });
 

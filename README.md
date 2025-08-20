@@ -113,10 +113,18 @@ const result = await go(
   async () => {
     const fs = require('node:fs');
     const crypto = require('node:crypto');
+    const moment = (await import('moment')).default;
+
+    const moment_res = {
+      version: moment.version,
+      now: moment().format(),
+      isValid: moment().isValid(),
+    };
 
     return {
       fileExists: fs.existsSync('/tmp/test'),
       randomBytes: crypto.randomBytes(4).toString('hex'),
+      ...moment_res,
     };
   },
   [],

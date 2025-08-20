@@ -22,10 +22,10 @@ async function testMomentImports() {
     console.log('\n1. Testing basic moment import...');
     const result1 = await go(
       async () => {
-        const moment = require('moment');
-        const sleep = require('./helpers/sleep.cjs');
+        const moment = (await import('moment')).default;
 
-        await sleep(1000);
+        const { sleep } = await import('gonex');
+        await sleep(300);
         console.log('Moment imported successfully in worker thread');
         return {
           version: moment.version,
@@ -42,8 +42,10 @@ async function testMomentImports() {
     console.log('\n2. Testing moment with date formatting...');
     const result2 = await go(
       async () => {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
         const moment = require('moment');
+        const sleep = (await import('./helpers/sleep.cjs')).default;
+
+        await sleep(300);
         console.log('Moment imported for date formatting');
 
         const now = moment();
@@ -58,6 +60,46 @@ async function testMomentImports() {
       { useWorkerThreads: true }
     );
     console.log('Moment formatting result:', result2);
+
+    // Test 3: Lodash Import Testing
+    console.log('\n3. Testing lodash import...');
+    const result3 = await go(
+      async () => {
+        const lodash = (await import('lodash')).default;
+        const sleep = (await import('./helpers/sleep.js')).default;
+
+        await sleep(300);
+        console.log('Lodash imported successfully');
+        return {
+          isArray: lodash.isArray([1, 2, 3]),
+          capitalize: lodash.capitalize('hello'),
+        };
+      },
+      [],
+      { useWorkerThreads: true }
+    );
+    console.log('Lodash result:', result3);
+
+    // Test 4: chalk import testing
+    console.log('\n4. Testing chalk import...');
+    const result4 = await go(
+      async () => {
+        const chalk = (await import('chalk')).default;
+        console.log('Chalk imported successfully');
+        console.log(chalk.red('Hello, world!'));
+        console.log(chalk.green('Hello, world!'));
+        console.log(chalk.blue('Hello, world!'));
+
+        return {
+          red: chalk.red('Hello, world!'),
+          green: chalk.green('Hello, world!'),
+          blue: chalk.blue('Hello, world!'),
+        };
+      },
+      [],
+      { useWorkerThreads: true }
+    );
+    console.log('Chalk result:', result4);
 
     console.log('\nAll moment import tests completed successfully!');
   } catch (error) {
