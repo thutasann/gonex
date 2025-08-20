@@ -22,10 +22,8 @@ async function testMomentImports() {
     console.log('\n1. Testing basic moment import...');
     const result1 = await go(
       async () => {
-        const moment = require('moment');
-        const sleep = require('./helpers/sleep.cjs');
+        const moment = (await import('moment')).default;
 
-        await sleep(1000);
         console.log('Moment imported successfully in worker thread');
         return {
           version: moment.version,

@@ -19,7 +19,7 @@ async function testSimpleImports() {
     console.log('\n1. Testing function with Node.js built-in module...');
     const result1 = await go(
       async () => {
-        const fs = await import('node:fs');
+        const fs = (await import('node:fs')).default;
         console.log('FS module imported successfully in worker thread');
         return {
           existsSync: typeof fs.existsSync === 'function',
@@ -35,7 +35,7 @@ async function testSimpleImports() {
     console.log('\n2. Testing function with path module...');
     const result2 = await go(
       async () => {
-        const path = await import('node:path');
+        const path = (await import('node:path')).default;
         console.log('Path module imported successfully');
         return {
           join: typeof path.join === 'function',
@@ -52,7 +52,7 @@ async function testSimpleImports() {
     console.log('\n3. Testing function with crypto module...');
     const result3 = await go(
       async () => {
-        const crypto = await import('node:crypto');
+        const crypto = (await import('node:crypto')).default;
         console.log('Crypto module imported successfully');
         return {
           randomBytes: typeof crypto.randomBytes === 'function',
@@ -70,14 +70,14 @@ async function testSimpleImports() {
     const result4 = await go(
       async moduleName => {
         console.log(`Attempting to import: ${moduleName}`);
-        const module = await import(moduleName);
+        const module = (await import(moduleName)).default;
         return {
           moduleName,
           success: true,
           exports: Object.keys(module),
         };
       },
-      ['node:fs'],
+      ['node:fs', 'node:path', 'node:crypto'],
       { useWorkerThreads: true }
     );
     console.log('Dynamic import result:', result4);
