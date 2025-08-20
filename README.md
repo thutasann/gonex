@@ -2,9 +2,9 @@
 
 Performance benchmarks for the Gonex concurrency library.
 
-📅 **Last Updated:** Sat Aug  9 09:27:27 UTC 2025
+📅 **Last Updated:** Wed Aug 20 07:36:23 UTC 2025
 🌟 **Branch:** master
-🔗 **Commit:** [`f61e942d0a00662bc88d3c6bdb6f89f8c777708a`](https://github.com/thutasann/gonex/commit/f61e942d0a00662bc88d3c6bdb6f89f8c777708a)
+🔗 **Commit:** [`c323cf5e2712092c8d58aff340de967f628b0598`](https://github.com/thutasann/gonex/commit/c323cf5e2712092c8d58aff340de967f628b0598)
 
 ## 📊 Results Structure
 
@@ -18,6 +18,9 @@ Results are organized by date and time:
 
 Recent benchmark runs:
 
+### 📅 2025-08-20
+- [🕐 07-36-22](./results/2025-08-20/07-36-22/)
+
 ### 📅 2025-08-09
 - [🕐 09-27-25](./results/2025-08-09/09-27-25/)
 
@@ -29,7 +32,4 @@ Recent benchmark runs:
 
 ### 📅 2025-08-06
 - [🕐 17-56-00](./results/2025-08-06/17-56-00/)
-
-### 📅 2025-08-04
-- [🕐 13-00-51](./results/2025-08-04/13-00-51/)
 
