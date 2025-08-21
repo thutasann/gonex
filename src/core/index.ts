@@ -4,6 +4,7 @@ export * from './context';
 export * from './goroutine';
 export * from './mutex';
 export * from './once';
+export * from './patterns';
 export * from './rwmutex';
 export * from './select';
 export * from './semaphore';
