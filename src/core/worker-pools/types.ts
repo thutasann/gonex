@@ -15,6 +15,33 @@ export type WorkerPoolConfig = {
   scalingFactor: number;
   /** Maximum scaling operations per minute */
   maxScalingOperationsPerMinute: number;
+  /** Enable metrics collection */
+  enableMetrics: boolean;
+};
+
+export type PoolMetrics = {
+  /** Current number of workers */
+  workerCount: number;
+  /** Current number of idle workers */
+  idleWorkerCount: number;
+  /** Current number of busy workers */
+  busyWorkerCount: number;
+  /** Current queue length */
+  queueLength: number;
+  /** Total tasks submitted */
+  totalTasksSubmitted: number;
+  /** Total tasks completed */
+  totalTasksCompleted: number;
+  /** Total tasks failed */
+  totalTasksFailed: number;
+  /** Average task processing time */
+  averageTaskTime: number;
+  /** Pool utilization percentage */
+  utilization: number;
+  /** Last scaling operation timestamp */
+  lastScalingOperation: number;
+  /** Scaling operations in the last minute */
+  scalingOperationsLastMinute: number;
 };
 
 export type Task<TInput> = {
@@ -29,7 +56,22 @@ export type Task<TInput> = {
   /** Task timeout in milliseconds */
   timeout: number;
   /** Task metadata */
-  metadata?: Record<string, AnyValue>;
+  metadata?: Record<string, AnyValue> | undefined;
+};
+
+export type CompletedTask<TInput, TOutput> = {
+  /** Original task */
+  task: Task<TInput>;
+  /** Task result */
+  result: TOutput;
+  /** Task completion timestamp */
+  completedAt: number;
+  /** Task execution duration in milliseconds */
+  duration: number;
+  /** Task success status */
+  success: boolean;
+  /** Error message if task failed */
+  error?: string;
 };
 
 export type TaskResult<TOutput> = {
@@ -68,4 +110,45 @@ export type WorkerInfo = {
     successRate: number;
     errorCount: number;
   };
+};
+
+export type HealthStatus = {
+  /** Overall pool health */
+  status: 'healthy' | 'degraded' | 'unhealthy';
+  /** Health check timestamp */
+  timestamp: number;
+  /** Health details */
+  details: {
+    /** Worker health information */
+    workers: {
+      total: number;
+      healthy: number;
+      unhealthy: number;
+      starting: number;
+      stopping: number;
+    };
+    /** Queue health information */
+    queue: {
+      length: number;
+      oldestTask: number;
+      averageWaitTime: number;
+    };
+    /** Performance metrics */
+    performance: {
+      throughput: number;
+      errorRate: number;
+      averageResponseTime: number;
+    };
+  };
+};
+
+export type LoadBalancer<TInput> = {
+  /** Select the best worker for a task */
+  selectWorker(workers: WorkerInfo[], task: Task<TInput>): WorkerInfo | null;
+
+  /** Update worker load information */
+  updateWorkerLoad(workerId: string, load: number): void;
+
+  /** Get current load distribution */
+  getLoadDistribution(): Map<string, number>;
 };

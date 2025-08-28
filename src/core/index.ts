@@ -16,3 +16,4 @@ export * from './shared-queues';
 export * from './timing';
 export * from './waitgroup';
 export * from './worker';
+export * from './worker-pools';
